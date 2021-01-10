@@ -1,5 +1,5 @@
 # Pongo
-A webserver for my website.
+A webserver for my website. The webserver and website, except media files are part of one binary file. This repository contains only an example website. 
 
 ## build under linux
 open a terminal in the project folder and enter:
