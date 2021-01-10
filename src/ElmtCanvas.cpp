@@ -121,12 +121,12 @@ void ElmtCanvas::DrawScaleY(std::stringstream &sstr)
 
 int ElmtCanvas::MaxLabelInXRange()
 {
-	return mCanvasWidth/(5*mFontSize*2);
+	return mCanvasWidth/(9*mFontSize);
 }
 
 int ElmtCanvas::MaxLabelInYRange()
 {
-	return mCanvasWidth/(2*mFontSize*2);
+	return mCanvasWidth/(4*mFontSize);
 }
 
 void ElmtCanvas::DrawLabelX(std::stringstream &sstr,double x)

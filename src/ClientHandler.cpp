@@ -86,7 +86,10 @@ ssize_t ClientHandler::Write(const void *buffer, size_t n)
 			if (ret == TLS_WANT_POLLIN || ret == TLS_WANT_POLLOUT)
 				continue;
 			else if (ret == -1)
+			{
 				std::cout << "tls_write failed with " << tls_error(mTlsConnection) << std::endl;
+				return n;
+			}
 			cbuffer += ret;
 			n -= ret;
 		}
@@ -144,49 +147,50 @@ void ClientHandler::ServeClient()
 
 			std::stringstream sstr;
 			sstr << buff;
-			
-			if(mRequest.parseHeader(sstr)==false)
-			{
-				SendBadRequest();
-			}
-			else
-			{
-				switch(mRequest.getRequest())
-				{
-					case GET:
-					{
-						const std::string path = mRequest.getPath();
-						if(ResourceManager::isAvailable(path))
-						{
-							int resSize=0;
-							char* resData = ResourceManager::Get(path,resSize);
-							SendResource(ResourceManager::ContentType(path),resData,resSize);
-						}
-						else
-						{
-							ProcessHtmlRequest(mRequest.getQuery());
-						}
-					}
-					break;
-					case POST:
-					{
-						std::string msg;
-						sstr >> msg;
-						ProcessHtmlRequest(msg);
-					}
-					break;
-					default:
-					{
-						SendNotImplemented();
-					}
-				}
-			}
+			Process(sstr);
 		}
     }
 	CloseSocket();
 	pthread_exit(NULL);
 }
 
+void ClientHandler::Process(std::stringstream &sstr)
+{
+	if(mRequest.parseHeader(sstr)==false)
+	{
+		SendBadRequest();
+	}
+	else
+	{
+		switch(mRequest.getRequest())
+		{
+			case GET:
+			{
+				const std::string path = mRequest.getPath();
+				if(ResourceManager::isAvailable(path))
+				{
+					int resSize=0;
+					char* resData = ResourceManager::Get(path,resSize);
+					SendResource(ResourceManager::ContentType(path),resData,resSize);
+				}
+				else
+				{
+					ProcessHtmlRequest(mRequest.getQuery());
+				}
+			}
+			break;
+			case POST:
+			{
+				ProcessHtmlRequest(sstr.str());
+			}
+			break;
+			default:
+			{
+				SendNotImplemented();
+			}
+		}
+	}
+}
 void ClientHandler::ProcessHtmlRequest(std::string varStr)
 {
 	mVariables.Parse(varStr);

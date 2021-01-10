@@ -51,20 +51,34 @@ void NetworkManagementSsl::SetCertName(const char* cert)
 
 void NetworkManagementSsl::StartWebServer(int port)
 {
+	if(Init(port))
+	{
+		RunServerLoop();
+		
+		ShutdownThreads();
+		BlockUntilAllThreadsFinished(30u);
+
+		CloseSocket();
+		std::cout << "all ssl connections closed" << std::endl;
+	}
+}
+
+bool NetworkManagementSsl::Init(int port)
+{
 	if (tls_init() == -1) 
 	{ 
-        std::cout << "tls init failed..." << std::endl; 
+        std::cout << "tls init failed..." << std::endl;
+		return false;
     } 
 
-	mTlsConfig = tls_config_new();
-	
-	
 	mTlsConnection =  tls_server();
 	if(mTlsConnection==nullptr)
 	{
 		std::cout << "tls server failed..." << std::endl;
-		return;
+		return false;
 	}
+	
+	mTlsConfig = tls_config_new();
 	
 	std::string path;
 	path = mBaseFolder+mCertName+".pkey.pem";
@@ -105,7 +119,12 @@ void NetworkManagementSsl::StartWebServer(int port)
 		
 		result = BindToSocket(mSockfd,port);
 	}
-	
+	return true;
+}
+
+void NetworkManagementSsl::RunServerLoop()
+{
+	int result = 0;
 	while(result == 0 and keepRunning==true)
 	{
 		result = ListenOnSocket(mSockfd);
@@ -124,11 +143,6 @@ void NetworkManagementSsl::StartWebServer(int port)
 			CheckForThreadsFinished();
 		}
 	}
-	
-	ShutdownThreads();
-	BlockUntilAllThreadsFinished();
-
-	CloseSocket();
 }
 
 void NetworkManagementSsl::CheckForThreadsFinished()
@@ -137,7 +151,7 @@ void NetworkManagementSsl::CheckForThreadsFinished()
 	for(std::list<std::tuple<pthread_t,ClientHandler*>>::iterator it = mHandler.begin();it != mHandler.end();++it)
 	{ 
 		void *retval;
-		if(pthread_tryjoin_np(std::get<0>(*it),&retval)==0)
+		if(CheckJoinReturnValue(pthread_tryjoin_np(std::get<0>(*it),&retval)))
 		{
 			std::cout << "found thread that has finished\n" << std::endl;
 			ClientHandler* pHandler = std::get<1>(*it);
@@ -152,6 +166,37 @@ void NetworkManagementSsl::CheckForThreadsFinished()
 	{ 
 		mHandler.erase(*it);
 	}
+}
+
+bool NetworkManagementSsl::CheckJoinReturnValue(int value)
+{
+	bool res = false;
+	switch(value)
+	{
+		case 0:
+		{
+			res = true;
+		}
+		break;
+		case EDEADLK:
+		{
+			std::cout << "sslthread: a deadlock was detected" << std::endl;
+		}
+		break;
+		case EINVAL:
+		{
+			std::cout << "sslthread: is not a joinable thread" << std::endl;
+		}
+		break;
+		case ESRCH:
+		{
+			std::cout << "sslthread: no thread with the ID" << std::endl;
+			res = true;
+		}
+		break;
+	}
+			
+	return res;
 }
 
 void NetworkManagementSsl::ShutdownSocket()
@@ -192,11 +237,35 @@ void NetworkManagementSsl::ShutdownThreads()
 	}
 }
 
-void NetworkManagementSsl::BlockUntilAllThreadsFinished()
+void NetworkManagementSsl::BlockUntilAllThreadsFinished(unsigned int timeout)
 {
-	while(mHandler.empty() == false)
+	while(mHandler.empty() == false and timeout>0)
 	{
 		CheckForThreadsFinished();
+		sleep(1);
+		timeout--;
+	}
+	if(mHandler.empty() == false)
+	{
+		KillThreads();
+	}
+}
+
+void NetworkManagementSsl::KillThreads()
+{
+	for(std::list<std::tuple<pthread_t,ClientHandler*>>::iterator it = mHandler.begin();it != mHandler.end();++it)
+	{ 
+		ClientHandler* pHandler = std::get<1>(*it);
+		pthread_t	pThread = std::get<0>(*it); 
+		pHandler->CloseSocket();
+		sleep(1);
+		void *retval;
+		if(pthread_tryjoin_np(pThread,&retval)!=0)
+		{
+			std::cout << "killing ssl thread " <<  pThread << std::endl;
+			pthread_kill(pThread,SIGKILL);
+		}
+		delete pHandler;
 	}
 }
 

@@ -53,7 +53,7 @@ void ResourceManager::Clear()
 	
 bool ResourceManager::isAvailable(const std::string &name)
 {
-	if(name.length()<5)
+	if(name.length()<5 or name.find("..") != std::string::npos or name.find("./") != std::string::npos)
 		return false;
 	
 	std::cout << "request resource " << name << std::endl;
@@ -147,8 +147,8 @@ std::string ResourceManager::ContentType(const std::string &name)
 	return res;
 }
 
- resType ResourceManager::DetermineType(const std::string &name)
- {
+resType ResourceManager::DetermineType(const std::string &name)
+{
 	 size_t dotpos = name.find_last_of('.');
 	 if( dotpos != std::string::npos)
 	 {

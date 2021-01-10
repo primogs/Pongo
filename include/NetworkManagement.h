@@ -27,6 +27,7 @@
 #include <pthread.h>
 #include <list>
 #include <tuple>
+#include <signal.h>
 #include "ClientHandler.h"
 
 class NetworkManagement
@@ -38,15 +39,19 @@ public:
 	static void StartWebServer(int port);
 	static void ShutdownSocket();
 private:
+	static bool Init(int port);
+	static void RunServerLoop();
+	static bool CheckJoinReturnValue(int value);
 	static void CloseSocket();
 	static void ShutdownThreads();
+	static void KillThreads();
 	static void CheckForThreadsFinished();
 	static int BindToSocket(int sockfd,int port);
 	static int ListenOnSocket(int sockfd);
 	static int AcceptOnSocket(int sockfd);
 	static void StartThread(int socketToClient);
 	static void* ConnectionHandler(void *pHandler);
-	static void BlockUntilAllThreadsFinished();
+	static void BlockUntilAllThreadsFinished(unsigned int timeout);
 	
 	static std::list<std::tuple<pthread_t,ClientHandler*> > mHandler;
 	static int mSockfd;

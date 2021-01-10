@@ -52,6 +52,7 @@ private:
 	ssize_t Write(const void *buffer, size_t n);
 	ssize_t Read(void *buffer, size_t n);
 
+	void Process(std::stringstream &sstr);
 	void ProcessHtmlRequest(std::string varStr);
 	void SendNotFound();
 	void SendBadRequest();
@@ -60,6 +61,8 @@ private:
 	void SendResource(std::string type,char * resData,int resSize);
 	std::string GenerateErrorPage(const std::string &errorMsg);
 	std::string BuildResponse(std::string &htmlText,httpStatus status=OK);
+	
+	bool CheckHttpArguments();
 
 	HtmlWebsite 		mWebsite;
 	HttpVariables 		mVariables;

@@ -31,8 +31,20 @@ NetworkManagement::NetworkManagement()
 NetworkManagement::~NetworkManagement()
 {
 }
-// SO_REUSEADDR
+
 void NetworkManagement::StartWebServer(int port)
+{
+	if(Init(port))
+	{
+		RunServerLoop();
+		ShutdownThreads();
+		BlockUntilAllThreadsFinished(30u);
+		CloseSocket();
+		std::cout << "all non ssl connections closed" << std::endl;
+	}
+}
+
+bool NetworkManagement::Init(int port)
 {
 	int result = 0;
     // socket create and verification 
@@ -40,11 +52,12 @@ void NetworkManagement::StartWebServer(int port)
     if (mSockfd == -1) 
 	{ 
         std::cout << "socket creation failed..." << std::endl; 
-        result = -1; 
+        result = -1;
+		return false;
     } 
     else
 	{
-        std::cout << "Socket successfully created.." << std::endl;
+        std::cout << "socket successfully created.." << std::endl;
 		
 		int enable = 1;																	// avoid "socket bind failed with 98" after program restart
 		result = setsockopt(mSockfd, SOL_SOCKET, SO_REUSEADDR, &enable, sizeof(int));
@@ -55,7 +68,12 @@ void NetworkManagement::StartWebServer(int port)
 		
 		result = BindToSocket(mSockfd,port);
 	}
-	
+	return true;
+}
+
+void NetworkManagement::RunServerLoop()
+{
+	int result = 0;
 	while(result == 0 and keepRunning==true)
 	{
 		result = ListenOnSocket(mSockfd);
@@ -73,12 +91,8 @@ void NetworkManagement::StartWebServer(int port)
 			CheckForThreadsFinished();
 		}
 	}
-	
-	ShutdownThreads();
-	BlockUntilAllThreadsFinished();
-	CloseSocket();
 }
-
+	
 void NetworkManagement::ShutdownSocket()
 {
 	shutdown(mSockfd, SHUT_RD);
@@ -102,7 +116,7 @@ void NetworkManagement::CheckForThreadsFinished()
 	for(std::list<std::tuple<pthread_t,ClientHandler*>>::iterator it = mHandler.begin();it != mHandler.end();++it)
 	{ 
 		void *retval;
-		if(pthread_tryjoin_np(std::get<0>(*it),&retval)==0)
+		if(CheckJoinReturnValue(pthread_tryjoin_np(std::get<0>(*it),&retval)))
 		{
 			std::cout << "found thread that has finished\n" << std::endl;
 			ClientHandler* pHandler = std::get<1>(*it);
@@ -128,13 +142,68 @@ void NetworkManagement::ShutdownThreads()
 	}
 }
 
-void NetworkManagement::BlockUntilAllThreadsFinished()
+void NetworkManagement::BlockUntilAllThreadsFinished(unsigned int timeout)
 {
-	while(mHandler.empty() == false)
+	while(mHandler.empty() == false and timeout>0)
 	{
 		CheckForThreadsFinished();
+		sleep(1);
+		timeout--;
 	}
-	
+	if(mHandler.empty() == false)
+	{
+		KillThreads();
+	}
+}
+
+bool NetworkManagement::CheckJoinReturnValue(int value)
+{
+	bool res = false;
+	switch(value)
+	{
+		case 0:
+		{
+			res = true;
+		}
+		break;
+		case EDEADLK:
+		{
+			std::cout << "thread: a deadlock was detected" << std::endl;
+		}
+		break;
+		case EINVAL:
+		{
+			std::cout << "thread: is not a joinable thread" << std::endl;
+		}
+		break;
+		case ESRCH:
+		{
+			std::cout << "thread: no thread with the ID" << std::endl;
+			res = true;
+		}
+		break;
+	}
+			
+	return res;
+}
+
+void NetworkManagement::KillThreads()
+{
+	std::list<std::list<std::tuple<pthread_t,ClientHandler*>>::iterator> threadsfinished;
+	for(std::list<std::tuple<pthread_t,ClientHandler*>>::iterator it = mHandler.begin();it != mHandler.end();++it)
+	{ 
+		ClientHandler* pHandler = std::get<1>(*it);
+		pthread_t	pThread = std::get<0>(*it); 
+		pHandler->CloseSocket();
+		sleep(1);
+		void *retval;
+		if(pthread_tryjoin_np(pThread,&retval)!=0)
+		{
+			std::cout << "killing thread " <<  pThread << std::endl;
+			pthread_kill(pThread,SIGKILL);
+		}
+		delete pHandler;
+	}
 }
 
 int NetworkManagement::BindToSocket(int sockfd,int port)
@@ -154,7 +223,7 @@ int NetworkManagement::BindToSocket(int sockfd,int port)
     } 
     else
 	{
-        std::cout << "Socket successfully binded.." << std::endl;
+        std::cout << "socket successfully binded.." << std::endl;
 	}
 	return 0;
 }
@@ -165,12 +234,12 @@ int NetworkManagement::ListenOnSocket(int sockfd)
 	const int maxPendingConnection = 16;
 	if ((listen(sockfd, maxPendingConnection)) != 0) 
 	{ 
-		std::cout << "Listen failed..." << std::endl; 
+		std::cout << "listen failed..." << std::endl; 
 		return -1; 
 	} 
 	else
 	{
-		std::cout << "Server listening.." << std::endl; 
+		std::cout << "server listening.." << std::endl; 
 	}
 	return 0;
 }
