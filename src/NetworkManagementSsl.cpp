@@ -21,7 +21,8 @@
 #include <tls.h>
 
 extern volatile bool keepRunning;
-std::list<std::tuple<pthread_t,ClientHandler*> > NetworkManagementSsl::mHandler;
+std::list<ClientHandler*> NetworkManagementSsl::mHandler;
+std::mutex NetworkManagementSsl::mHandlerMutex;
 
 int NetworkManagementSsl::mSockfd=0;
 struct tls_config * NetworkManagementSsl::mTlsConfig = nullptr;
@@ -53,13 +54,14 @@ void NetworkManagementSsl::StartWebServer(int port)
 {
 	if(Init(port))
 	{
+		std::cout << "web server listen on port "<< port << std::endl;
 		RunServerLoop();
 		
 		ShutdownThreads();
 		BlockUntilAllThreadsFinished(30u);
 
 		CloseSocket();
-		std::cout << "all ssl connections closed" << std::endl;
+		std::cout << "ssl web server closed" << std::endl;
 	}
 }
 
@@ -108,8 +110,6 @@ bool NetworkManagementSsl::Init(int port)
     } 
     else
 	{
-        std::cout << "Socket successfully created.." << std::endl;
-		
 		int enable = 1;																	// avoid "socket bind failed with 98" after program restart
 		result = setsockopt(mSockfd, SOL_SOCKET, SO_REUSEADDR, &enable, sizeof(int));
 		if (result < 0)
@@ -117,7 +117,7 @@ bool NetworkManagementSsl::Init(int port)
 			std::cout << "setsockopt(SO_REUSEADDR) failed ..." << std::endl; 
 		}
 		
-		result = BindToSocket(mSockfd,port);
+		BindToSocket(mSockfd,port);
 	}
 	return true;
 }
@@ -140,63 +140,8 @@ void NetworkManagementSsl::RunServerLoop()
 			{
 				result = -1;
 			}
-			CheckForThreadsFinished();
 		}
 	}
-}
-
-void NetworkManagementSsl::CheckForThreadsFinished()
-{
-	std::list<std::list<std::tuple<pthread_t,ClientHandler*>>::iterator> threadsfinished;
-	for(std::list<std::tuple<pthread_t,ClientHandler*>>::iterator it = mHandler.begin();it != mHandler.end();++it)
-	{ 
-		void *retval;
-		if(CheckJoinReturnValue(pthread_tryjoin_np(std::get<0>(*it),&retval)))
-		{
-			std::cout << "found thread that has finished\n" << std::endl;
-			ClientHandler* pHandler = std::get<1>(*it);
-			
-			pHandler->CloseSocket();
-				
-			delete pHandler;
-			threadsfinished.push_back(it);
-		}
-	}
-	for(std::list<std::list<std::tuple<pthread_t,ClientHandler*>>::iterator>::iterator it = threadsfinished.begin();it != threadsfinished.end();++it)
-	{ 
-		mHandler.erase(*it);
-	}
-}
-
-bool NetworkManagementSsl::CheckJoinReturnValue(int value)
-{
-	bool res = false;
-	switch(value)
-	{
-		case 0:
-		{
-			res = true;
-		}
-		break;
-		case EDEADLK:
-		{
-			std::cout << "sslthread: a deadlock was detected" << std::endl;
-		}
-		break;
-		case EINVAL:
-		{
-			std::cout << "sslthread: is not a joinable thread" << std::endl;
-		}
-		break;
-		case ESRCH:
-		{
-			std::cout << "sslthread: no thread with the ID" << std::endl;
-			res = true;
-		}
-		break;
-	}
-			
-	return res;
 }
 
 void NetworkManagementSsl::ShutdownSocket()
@@ -230,42 +175,25 @@ void NetworkManagementSsl::CloseSocket()
 
 void NetworkManagementSsl::ShutdownThreads()
 {
-	for(std::list<std::tuple<pthread_t,ClientHandler*>>::iterator it = mHandler.begin();it != mHandler.end();++it)
+	mHandlerMutex.lock();
+	for(std::list<ClientHandler*>::iterator it = mHandler.begin();it != mHandler.end();++it)
 	{ 
-		ClientHandler* pHandler = std::get<1>(*it);
+		ClientHandler* pHandler = (*it);
 		pHandler->ShutdownSocket();
 	}
+	mHandlerMutex.unlock();
 }
 
 void NetworkManagementSsl::BlockUntilAllThreadsFinished(unsigned int timeout)
 {
 	while(mHandler.empty() == false and timeout>0)
 	{
-		CheckForThreadsFinished();
 		sleep(1);
 		timeout--;
 	}
 	if(mHandler.empty() == false)
 	{
-		KillThreads();
-	}
-}
-
-void NetworkManagementSsl::KillThreads()
-{
-	for(std::list<std::tuple<pthread_t,ClientHandler*>>::iterator it = mHandler.begin();it != mHandler.end();++it)
-	{ 
-		ClientHandler* pHandler = std::get<1>(*it);
-		pthread_t	pThread = std::get<0>(*it); 
-		pHandler->CloseSocket();
-		sleep(1);
-		void *retval;
-		if(pthread_tryjoin_np(pThread,&retval)!=0)
-		{
-			std::cout << "killing ssl thread " <<  pThread << std::endl;
-			pthread_kill(pThread,SIGKILL);
-		}
-		delete pHandler;
+		std::cout << "not all connection closed!!!" << std::endl;
 	}
 }
 
@@ -284,10 +212,6 @@ int NetworkManagementSsl::BindToSocket(int sockfd,int port)
         std::cout << "socket bind failed with " << errno << std::endl; 
         return -1;
     } 
-    else
-	{
-        std::cout << "Socket successfully binded.." << std::endl;
-	}
 	return 0;
 }
 
@@ -299,10 +223,6 @@ int NetworkManagementSsl::ListenOnSocket(int sockfd)
 	{ 
 		std::cout << "Listen failed..." << std::endl; 
 		return -1; 
-	} 
-	else
-	{
-		std::cout << "Server listening.." << std::endl; 
 	}
 	return 0;
 }
@@ -327,33 +247,66 @@ int NetworkManagementSsl::AcceptOnSocket(int sockfd,struct tls **tlsConnection)
 		} 
 		else
 		{
-			std::cout << "server acccept the client..." << std::endl;
+			time_t rawtime;
+			struct tm * timeinfo;
+
+			time ( &rawtime );
+			timeinfo = localtime ( &rawtime );
+			char ipaddr[INET_ADDRSTRLEN];
+			inet_ntop( AF_INET, &cli.sin_addr, ipaddr, sizeof( ipaddr ));
+			std::cout << "server acccept ssl client " << ipaddr << " nr " << mHandler.size() << " " << asctime (timeinfo)  << std::endl;
 		}
 	}
 	return connfd;
 }
 
+void NetworkManagementSsl::RemoveFromHandlerList(ClientHandler * targetHandle)
+{
+	bool found = false;
+	mHandlerMutex.lock();
+	for(std::list<ClientHandler*>::iterator it = mHandler.begin();it != mHandler.end();++it)
+	{ 
+		ClientHandler* pHandler = (*it);
+		if(pHandler==targetHandle)
+		{
+			mHandler.erase(it);
+			found = true;
+			break;
+		}
+	}
+	mHandlerMutex.unlock();
+	if(found==false)
+		std::cout << "warning client handler not found!!!" << std::endl;
+}
+
 void NetworkManagementSsl::StartThread(struct tls *tlsToClient,int socketToClient)
 {
-	ClientHandler * pHandler = new ClientHandler;
-	pHandler->SetSocketOfClient(socketToClient);
+	ClientHandler * pHandler = new ClientHandler(socketToClient);
+	if(pHandler==nullptr)
+	{
+		std::cout << "memory allocation failed!!!" << std::endl;
+		return;
+	}
+		
 	pHandler->SetSocketOfClient(tlsToClient);
-	pthread_t ThreadHandle = -1;
-	if( pthread_create( &ThreadHandle,NULL,&NetworkManagementSsl::ConnectionHandler,(void*)pHandler ) < 0)
+	try
+	{
+		std::thread thread(NetworkManagementSsl::ConnectionHandler, pHandler);
+		thread.detach();
+		mHandler.push_back(pHandler);
+	}
+	catch(...)
 	{
 		delete pHandler;
-		std::cout << "create thread failed..." << std::endl;
-	}
-	else
-	{
-		mHandler.push_back(std::make_tuple(ThreadHandle,pHandler));
+		std::cout << "thread creation failed!!!" << std::endl;
 	}
 }
 
 
-void* NetworkManagementSsl::ConnectionHandler(void *pHandler)
+void* NetworkManagementSsl::ConnectionHandler(ClientHandler* pCHandler)
 {
-	ClientHandler * pCHandler = reinterpret_cast<ClientHandler*>(pHandler);
 	pCHandler->ServeClient();
+	RemoveFromHandlerList(pCHandler);
+	delete pCHandler;
 	return NULL;
 }

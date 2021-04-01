@@ -23,7 +23,8 @@
 
 extern volatile bool keepRunning;
 
-ClientHandler::ClientHandler():mSocket(-1), mTlsConnection(nullptr)
+ClientHandler::ClientHandler(int socket):
+mSocket(socket), mTlsConnection(nullptr)
 {
 }
 
@@ -61,11 +62,6 @@ void ClientHandler::ShutdownSocket()
 	{
 		shutdown(mSocket, SHUT_RD);
 	}
-}
-
-void ClientHandler::SetSocketOfClient(int socket)
-{
-	mSocket = socket;
 }
 
 void ClientHandler::SetSocketOfClient(struct tls* connection)
@@ -151,7 +147,6 @@ void ClientHandler::ServeClient()
 		}
     }
 	CloseSocket();
-	pthread_exit(NULL);
 }
 
 void ClientHandler::Process(std::stringstream &sstr)
@@ -210,7 +205,7 @@ std::string ClientHandler::BuildResponse(std::string &htmlText,httpStatus status
 	std::stringstream sstr;
 	HttpHeaderResponse resHeader;
 	resHeader.addArgument("Server","Pongo");
-	resHeader.addArgument("Content-type","text/html, text, plain");
+	resHeader.addArgument("Content-type","text/html; charset=utf-8");
 	resHeader.addArgument("Connection","keep-alive");
 	resHeader.addArgument("Content-length",htmlText.length());
 	resHeader.getHeader(sstr,status);

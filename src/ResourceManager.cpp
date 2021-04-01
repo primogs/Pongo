@@ -103,6 +103,11 @@ bool ResourceManager::LoadResource(const std::string &name)
 		
 	file.seekg(0,file.beg);
 	char *fileData = new char [fileSize];
+	if(fileData==nullptr)
+	{
+		std::cout << "memory allocation failed!!!" << std::endl;
+		return false;
+	}
 	file.read(fileData,fileSize);
 	mCache[name]= std::make_tuple(fileData,fileSize);
 	return true;

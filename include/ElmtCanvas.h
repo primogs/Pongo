@@ -48,7 +48,7 @@ public:
 	void AddDataPoint(double x,double y, unsigned short graph=0);
 	
 	void AddUnit(std::string yAxis,std::string xAxis);
-	void AddLegende(std::vector<std::string> label);
+	void AddLegende(std::vector<std::string> &label);
 private:
 	int MaxLabelInXRange();
 	int MaxLabelInYRange();
@@ -62,7 +62,7 @@ private:
 	
 	void DrawLabelX(std::stringstream &sstr,double x);
 	void DrawLabelY(std::stringstream &sstr,double y);
-	void DrawLabelY(std::stringstream &sstr,double y,std::string label);
+	void DrawLabelY(std::stringstream &sstr,double y,std::string &label);
 	int Interpolate(double a,double amin,double amax,int bmin,int bmax);
 	int InterpolateInverse(double a,double amin,double amax,int bmin,int bmax);
 	
@@ -83,7 +83,7 @@ private:
 	
 	std::string mId;
 	
-	bool mTime;
+	bool mTimeAxis;
 	
 	std::list< std::tuple <double,std::string> > mLabelList;
 	std::vector<std::string> mLegende;

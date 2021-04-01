@@ -30,6 +30,7 @@
 #include <sstream>
 #include <iostream>
 #include <fstream>
+#include <functional>
 #include "HtmlWebsite.h"
 #include "HttpHeaderRequest.h"
 #include "HttpHeaderResponse.h"
@@ -39,14 +40,14 @@
 class ClientHandler
 {
 public:
-	ClientHandler();
+	ClientHandler(int socket);
 	virtual ~ClientHandler();
 	
 	void CloseSocket();
 	void ShutdownSocket();
 	
-	void SetSocketOfClient(int socket);
 	void SetSocketOfClient(struct tls* connection);
+	void SetParentHandlerList();
 	void ServeClient();
 private:
 	ssize_t Write(const void *buffer, size_t n);

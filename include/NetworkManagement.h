@@ -24,10 +24,12 @@
 #include <sys/socket.h> 
 #include <errno.h>
 #include <iostream>
-#include <pthread.h>
+#include <thread>
 #include <list>
 #include <tuple>
 #include <signal.h>
+#include <arpa/inet.h>
+#include <mutex>
 #include "ClientHandler.h"
 
 class NetworkManagement
@@ -41,19 +43,19 @@ public:
 private:
 	static bool Init(int port);
 	static void RunServerLoop();
-	static bool CheckJoinReturnValue(int value);
 	static void CloseSocket();
 	static void ShutdownThreads();
-	static void KillThreads();
-	static void CheckForThreadsFinished();
+	static void RemoveFromHandlerList(ClientHandler * targetHandle);
 	static int BindToSocket(int sockfd,int port);
 	static int ListenOnSocket(int sockfd);
 	static int AcceptOnSocket(int sockfd);
 	static void StartThread(int socketToClient);
-	static void* ConnectionHandler(void *pHandler);
+	static void* ConnectionHandler(ClientHandler* pCHandler);
 	static void BlockUntilAllThreadsFinished(unsigned int timeout);
 	
-	static std::list<std::tuple<pthread_t,ClientHandler*> > mHandler;
+	static std::list<ClientHandler*> mHandler;
+	static std::mutex mHandlerMutex;
+		
 	static int mSockfd;
 };
 

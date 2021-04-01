@@ -27,7 +27,7 @@ ElmtCanvas::ElmtCanvas(const std::string &id):mId(id)
 	mBoarder = 5;
 	mScaleWidth = mFontSize*5;
 	mScaleHeight = mFontSize;
-	mTime = true;
+	mTimeAxis = true;
 		
 	mMinX = nan("");
 	mMaxX = nan("");
@@ -49,7 +49,7 @@ void ElmtCanvas::ClearGraph()
 	mMaxY = nan("");
 }
 
-void ElmtCanvas::AddLegende(std::vector<std::string> label)
+void ElmtCanvas::AddLegende(std::vector<std::string> &label)
 {
 	mLegende = label;
 }
@@ -74,7 +74,7 @@ ctx.strokeStyle = '#9A9A9A';\n";
 	
 
 	unsigned int color = 0;
-	for(std::vector< std::list< std::tuple <double,double> > >::iterator it = mGraph.begin();it!=mGraph.end() and color < mPallet.size();it++,color++)
+	for(std::vector< std::list< std::tuple <double,double> > >::iterator it = mGraph.begin();it!=mGraph.end() and color < mPallet.size();++it,++color)
 	{
 		sstr << "ctx.strokeStyle = '#" << mPallet[color] << "';\n\
 ctx.lineWidth = 3;\n";
@@ -89,7 +89,8 @@ void ElmtCanvas::DrawScaleX(std::stringstream &sstr)
 {
 	int nx = MaxLabelInXRange();
 	double incx = (mMaxX-mMinX)/nx;
-	for(double x = mMinX;x<mMaxX;x=x+incx)
+	double minSpace = incx*0.75;
+	for(double x = mMinX;x<(mMaxX-minSpace);x=x+incx)
 		DrawLabelX(sstr, x);
 	DrawLabelX(sstr, mMaxX);
 	
@@ -99,7 +100,7 @@ void ElmtCanvas::DrawScaleY(std::stringstream &sstr)
 {
 	if(mLabelList.size()>0)
 	{
-		for(std::list< std::tuple <double,std::string> >::iterator it = mLabelList.begin();it != mLabelList.end();it++)
+		for(std::list< std::tuple <double,std::string> >::iterator it = mLabelList.begin();it != mLabelList.end();++it)
 		{
 			double y = std::get<0>(*it);
 			if(y <= mMaxY and y >= mMinY)
@@ -113,7 +114,8 @@ void ElmtCanvas::DrawScaleY(std::stringstream &sstr)
 	{
 		int ny = MaxLabelInYRange();
 		double incy = (mMaxY-mMinY)/ny;
-		for(double y = mMinY;y<mMaxY;y=y+incy)
+		double minSpace = incy*0.75;
+		for(double y = mMinY;y<(mMaxY-minSpace);y=y+incy)
 			DrawLabelY(sstr, y);
 		DrawLabelY(sstr, mMaxY);
 	}
@@ -132,7 +134,7 @@ int ElmtCanvas::MaxLabelInYRange()
 void ElmtCanvas::DrawLabelX(std::stringstream &sstr,double x)
 {
 	int xpx = Interpolate(x,mMinX,mMaxX,mBoarder+mScaleWidth,mCanvasWidth-mBoarder-mScaleWidth);
-	if(mTime)
+	if(mTimeAxis)
 	{
 		int minutes = std::abs(static_cast<int>(x-mMaxX))/60;
 		int hours = minutes/60;
@@ -142,7 +144,9 @@ void ElmtCanvas::DrawLabelX(std::stringstream &sstr,double x)
 		sstr << "ctx.fillText('-" << days << ":" << std::setw(2) << std::setfill('0') << hours << ":" << std::setw(2) << std::setfill('0') << minutes << "', " << xpx << ", "<< mCanvasHeight-mBoarder << ");\n";
 	}
 	else
+	{
 		sstr << "ctx.fillText('" << std::fixed << std::setprecision(2) << x << "', " << xpx << ", "<< mCanvasHeight-mBoarder << ");\n";
+	}
 	
 	sstr << "ctx.beginPath();\n";
 	sstr << "ctx.moveTo(" << xpx <<", "<< mBoarder+mScaleHeight << ");\n";
@@ -150,7 +154,7 @@ void ElmtCanvas::DrawLabelX(std::stringstream &sstr,double x)
 	sstr << "ctx.stroke();\n\n";
 }
 
-void ElmtCanvas::DrawLabelY(std::stringstream &sstr,double y,std::string label)
+void ElmtCanvas::DrawLabelY(std::stringstream &sstr,double y,std::string &label)
 {
 	int ypx = InterpolateInverse(y,mMinY,mMaxY,mFontSize+mBoarder,mCanvasHeight-mBoarder-mScaleHeight);
 	sstr << "ctx.fillText('" << label << "', " << mBoarder << ", "<< ypx << ");\n";
@@ -195,7 +199,7 @@ void ElmtCanvas::SetCanvasSize(int width,int height)
 
 void ElmtCanvas::DisableTimeline()
 {
-	mTime = false;
+	mTimeAxis = false;
 }
 
 

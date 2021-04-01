@@ -20,7 +20,8 @@
 #include "NetworkManagement.h"
 
 extern volatile bool keepRunning;
-std::list<std::tuple<pthread_t,ClientHandler*> > NetworkManagement::mHandler;
+std::list<ClientHandler*> NetworkManagement::mHandler;
+std::mutex NetworkManagement::mHandlerMutex;
 
 int NetworkManagement::mSockfd=0;
 
@@ -36,11 +37,12 @@ void NetworkManagement::StartWebServer(int port)
 {
 	if(Init(port))
 	{
+		std::cout << "web server listen on port "<< port << std::endl;
 		RunServerLoop();
 		ShutdownThreads();
 		BlockUntilAllThreadsFinished(30u);
 		CloseSocket();
-		std::cout << "all non ssl connections closed" << std::endl;
+		std::cout << "web server closed" << std::endl;
 	}
 }
 
@@ -57,8 +59,6 @@ bool NetworkManagement::Init(int port)
     } 
     else
 	{
-        std::cout << "socket successfully created.." << std::endl;
-		
 		int enable = 1;																	// avoid "socket bind failed with 98" after program restart
 		result = setsockopt(mSockfd, SOL_SOCKET, SO_REUSEADDR, &enable, sizeof(int));
 		if (result < 0)
@@ -66,7 +66,7 @@ bool NetworkManagement::Init(int port)
 			std::cout << "setsockopt(SO_REUSEADDR) failed ..." << std::endl; 
 		}
 		
-		result = BindToSocket(mSockfd,port);
+		BindToSocket(mSockfd,port);
 	}
 	return true;
 }
@@ -88,7 +88,6 @@ void NetworkManagement::RunServerLoop()
 			{
 				result = -1;
 			}
-			CheckForThreadsFinished();
 		}
 	}
 }
@@ -110,99 +109,27 @@ void NetworkManagement::CloseSocket()
 	}
 }
 
-void NetworkManagement::CheckForThreadsFinished()
-{
-	std::list<std::list<std::tuple<pthread_t,ClientHandler*>>::iterator> threadsfinished;
-	for(std::list<std::tuple<pthread_t,ClientHandler*>>::iterator it = mHandler.begin();it != mHandler.end();++it)
-	{ 
-		void *retval;
-		if(CheckJoinReturnValue(pthread_tryjoin_np(std::get<0>(*it),&retval)))
-		{
-			std::cout << "found thread that has finished\n" << std::endl;
-			ClientHandler* pHandler = std::get<1>(*it);
-			
-			pHandler->CloseSocket();
-				
-			delete pHandler;
-			threadsfinished.push_back(it);
-		}
-	}
-	for(std::list<std::list<std::tuple<pthread_t,ClientHandler*>>::iterator>::iterator it = threadsfinished.begin();it != threadsfinished.end();++it)
-	{ 
-		mHandler.erase(*it);
-	}
-}
-
 void NetworkManagement::ShutdownThreads()
 {
-	for(std::list<std::tuple<pthread_t,ClientHandler*>>::iterator it = mHandler.begin();it != mHandler.end();++it)
+	mHandlerMutex.lock();
+	for(std::list<ClientHandler*>::iterator it = mHandler.begin();it != mHandler.end();++it)
 	{ 
-		ClientHandler* pHandler = std::get<1>(*it);
+		ClientHandler* pHandler = (*it);
 		pHandler->ShutdownSocket();
 	}
+	mHandlerMutex.unlock();
 }
 
 void NetworkManagement::BlockUntilAllThreadsFinished(unsigned int timeout)
 {
 	while(mHandler.empty() == false and timeout>0)
 	{
-		CheckForThreadsFinished();
 		sleep(1);
 		timeout--;
 	}
 	if(mHandler.empty() == false)
 	{
-		KillThreads();
-	}
-}
-
-bool NetworkManagement::CheckJoinReturnValue(int value)
-{
-	bool res = false;
-	switch(value)
-	{
-		case 0:
-		{
-			res = true;
-		}
-		break;
-		case EDEADLK:
-		{
-			std::cout << "thread: a deadlock was detected" << std::endl;
-		}
-		break;
-		case EINVAL:
-		{
-			std::cout << "thread: is not a joinable thread" << std::endl;
-		}
-		break;
-		case ESRCH:
-		{
-			std::cout << "thread: no thread with the ID" << std::endl;
-			res = true;
-		}
-		break;
-	}
-			
-	return res;
-}
-
-void NetworkManagement::KillThreads()
-{
-	std::list<std::list<std::tuple<pthread_t,ClientHandler*>>::iterator> threadsfinished;
-	for(std::list<std::tuple<pthread_t,ClientHandler*>>::iterator it = mHandler.begin();it != mHandler.end();++it)
-	{ 
-		ClientHandler* pHandler = std::get<1>(*it);
-		pthread_t	pThread = std::get<0>(*it); 
-		pHandler->CloseSocket();
-		sleep(1);
-		void *retval;
-		if(pthread_tryjoin_np(pThread,&retval)!=0)
-		{
-			std::cout << "killing thread " <<  pThread << std::endl;
-			pthread_kill(pThread,SIGKILL);
-		}
-		delete pHandler;
+		std::cout << "not all connection closed!!!" << std::endl;
 	}
 }
 
@@ -221,10 +148,6 @@ int NetworkManagement::BindToSocket(int sockfd,int port)
         std::cout << "socket bind failed with " << errno << std::endl; 
         return -1;
     } 
-    else
-	{
-        std::cout << "socket successfully binded.." << std::endl;
-	}
 	return 0;
 }
 
@@ -237,10 +160,6 @@ int NetworkManagement::ListenOnSocket(int sockfd)
 		std::cout << "listen failed..." << std::endl; 
 		return -1; 
 	} 
-	else
-	{
-		std::cout << "server listening.." << std::endl; 
-	}
 	return 0;
 }
 
@@ -257,32 +176,64 @@ int NetworkManagement::AcceptOnSocket(int sockfd)
 	} 
 	else
 	{
-		std::cout << "server acccept the client..." << std::endl;
+		time_t rawtime;
+		struct tm * timeinfo;
+
+		time ( &rawtime );
+		timeinfo = localtime ( &rawtime );
+		char ipaddr[INET_ADDRSTRLEN];
+		inet_ntop( AF_INET, &cli.sin_addr, ipaddr, sizeof( ipaddr ));
+		std::cout << "server acccept the client " << ipaddr << " nr " << mHandler.size() << " "  << asctime (timeinfo) << std::endl;
 	}
 	return connfd;
 }
 
 void NetworkManagement::StartThread(int socketToClient)
 {
-	ClientHandler * pHandler = new ClientHandler;
-	pHandler->SetSocketOfClient(socketToClient);
-	pthread_t ThreadHandle = -1;
-	if( pthread_create( &ThreadHandle,NULL,&NetworkManagement::ConnectionHandler,(void*)pHandler ) < 0)
+	ClientHandler * pHandler = new ClientHandler(socketToClient);
+	if(pHandler==nullptr)
+	{
+		std::cout << "memory allocation failed!!!" << std::endl;
+		return;
+	}
+	try
+	{
+		std::thread thread(NetworkManagement::ConnectionHandler, pHandler);
+		thread.detach();
+		mHandler.push_back(pHandler);
+	}
+	catch(...)
 	{
 		delete pHandler;
-		std::cout << "create thread failed..." << std::endl;
-	}
-	else
-	{
-		mHandler.push_back(std::make_tuple(ThreadHandle,pHandler));
+		std::cout << "thread creation failed!!!" << std::endl;
 	}
 }
 
-
-void* NetworkManagement::ConnectionHandler(void *pHandler)
+void NetworkManagement::RemoveFromHandlerList(ClientHandler * targetHandle)
 {
-	ClientHandler * pCHandler = reinterpret_cast<ClientHandler*>(pHandler);
+	bool found = false;
+	mHandlerMutex.lock();
+	for(std::list<ClientHandler*>::iterator it = mHandler.begin();it != mHandler.end();++it)
+	{ 
+		ClientHandler* pHandler = (*it);
+		if(pHandler==targetHandle)
+		{
+			mHandler.erase(it);
+			found = true;
+			break;
+		}
+	}
+	mHandlerMutex.unlock();
+	if(found==false)
+		std::cout << "warning client handler not found!!!" << std::endl;
+}
+
+
+void* NetworkManagement::ConnectionHandler(ClientHandler* pCHandler)
+{
 	pCHandler->ServeClient();
+	RemoveFromHandlerList(pCHandler);
+	delete pCHandler;
 	return NULL;
 }
 
