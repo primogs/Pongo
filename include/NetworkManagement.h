@@ -29,8 +29,7 @@
 #include <tuple>
 #include <signal.h>
 #include <arpa/inet.h>
-#include <mutex>
-#include "ClientHandler.h"
+#include "NetworkManagerBase.h"
 
 class NetworkManagement
 {
@@ -45,16 +44,12 @@ private:
 	static void RunServerLoop();
 	static void CloseSocket();
 	static void ShutdownThreads();
-	static void RemoveFromHandlerList(ClientHandler * targetHandle);
 	static int BindToSocket(int sockfd,int port);
 	static int ListenOnSocket(int sockfd);
-	static int AcceptOnSocket(int sockfd);
-	static void StartThread(int socketToClient);
+	static int AcceptOnSocket(int sockfd,uint32_t &ip_address);
+	static void StartThread(int socketToClient,uint32_t ip_address);
 	static void* ConnectionHandler(ClientHandler* pCHandler);
 	static void BlockUntilAllThreadsFinished(unsigned int timeout);
-	
-	static std::list<ClientHandler*> mHandler;
-	static std::mutex mHandlerMutex;
 		
 	static int mSockfd;
 };

@@ -21,8 +21,6 @@
 #include <tls.h>
 
 extern volatile bool keepRunning;
-std::list<ClientHandler*> NetworkManagementSsl::mHandler;
-std::mutex NetworkManagementSsl::mHandlerMutex;
 
 int NetworkManagementSsl::mSockfd=0;
 struct tls_config * NetworkManagementSsl::mTlsConfig = nullptr;
@@ -131,14 +129,11 @@ void NetworkManagementSsl::RunServerLoop()
 		if(result != -1 and keepRunning==true)
 		{
 			struct tls * tlsConnection = NULL;
-			int newConnection = NetworkManagementSsl::AcceptOnSocket(mSockfd,&tlsConnection);
-			if(tlsConnection != nullptr)
+			uint32_t ip_address = 0;
+			int newConnection = NetworkManagementSsl::AcceptOnSocket(mSockfd,ip_address,&tlsConnection);
+			if(newConnection >=0 and tlsConnection != nullptr)
 			{
-				StartThread(tlsConnection,newConnection);
-			}
-			else
-			{
-				result = -1;
+				StartThread(tlsConnection,newConnection,ip_address);
 			}
 		}
 	}
@@ -146,6 +141,13 @@ void NetworkManagementSsl::RunServerLoop()
 
 void NetworkManagementSsl::ShutdownSocket()
 {
+	if(mTlsConnection != nullptr)
+	{
+		if(tls_close(mTlsConnection)<0)	// close tls before socket is shutdown
+		{
+			std::cout << "error in network manager ssl closing tls... " << tls_error(mTlsConnection) << std::endl;
+		}
+	}
 	shutdown(mSockfd, SHUT_RD);
 }
 
@@ -153,10 +155,6 @@ void NetworkManagementSsl::CloseSocket()
 {
 	if(mTlsConnection != nullptr)
 	{
-		if(tls_close(mTlsConnection)<0)
-		{
-			std::cout << "error in network manager ssl closing tls... " << tls_error(mTlsConnection) << std::endl;
-		}
 		tls_free(mTlsConnection);
 		tls_config_free(mTlsConfig);
 		
@@ -175,23 +173,23 @@ void NetworkManagementSsl::CloseSocket()
 
 void NetworkManagementSsl::ShutdownThreads()
 {
-	mHandlerMutex.lock();
-	for(std::list<ClientHandler*>::iterator it = mHandler.begin();it != mHandler.end();++it)
+	std::list<ClientHandler*> & handler = NetworkManagerBase::GetHandlerList();
+	for(std::list<ClientHandler*>::iterator it = handler.begin();it != handler.end();++it)
 	{ 
 		ClientHandler* pHandler = (*it);
 		pHandler->ShutdownSocket();
 	}
-	mHandlerMutex.unlock();
+	NetworkManagerBase::UnlockHandlerList();
 }
 
 void NetworkManagementSsl::BlockUntilAllThreadsFinished(unsigned int timeout)
 {
-	while(mHandler.empty() == false and timeout>0)
+	while(NetworkManagerBase::IsHandlerListEmpty() == false and timeout>0)
 	{
 		sleep(1);
 		timeout--;
 	}
-	if(mHandler.empty() == false)
+	if(NetworkManagerBase::IsHandlerListEmpty() == false)
 	{
 		std::cout << "not all connection closed!!!" << std::endl;
 	}
@@ -227,8 +225,9 @@ int NetworkManagementSsl::ListenOnSocket(int sockfd)
 	return 0;
 }
 
-int NetworkManagementSsl::AcceptOnSocket(int sockfd,struct tls **tlsConnection)
+int NetworkManagementSsl::AcceptOnSocket(int sockfd,uint32_t &ip_address,struct tls **tlsConnection)
 {
+	*tlsConnection = nullptr;
 	struct sockaddr_in cli;
 	int len = sizeof(cli);
 		  
@@ -240,48 +239,39 @@ int NetworkManagementSsl::AcceptOnSocket(int sockfd,struct tls **tlsConnection)
 	} 
 	else
 	{
-		int result = tls_accept_socket(mTlsConnection,tlsConnection,connfd);
-		if (result < 0) 
-		{ 
-			std::cout << "server acccept failed..." << std::endl; 
-		} 
+		ip_address = cli.sin_addr.s_addr;
+		if(NetworkManagerBase::IsBlacklisted(ip_address)==true)
+		{
+			if(close(connfd)== -1)
+			{
+				std::cout << "error in client handler closing socket... " << errno << std::endl;;
+			}
+			connfd = -1;
+		}
 		else
 		{
-			time_t rawtime;
-			struct tm * timeinfo;
+			int result = tls_accept_socket(mTlsConnection,tlsConnection,connfd);
+			if (result < 0) 
+			{ 
+				std::cout << "server acccept failed..." << std::endl; 
+			} 
+			else
+			{
+				const std::chrono::time_point<std::chrono::system_clock>  now = std::chrono::system_clock::now();
+				const std::time_t t_c = std::chrono::system_clock::to_time_t(now);
 
-			time ( &rawtime );
-			timeinfo = localtime ( &rawtime );
-			char ipaddr[INET_ADDRSTRLEN];
-			inet_ntop( AF_INET, &cli.sin_addr, ipaddr, sizeof( ipaddr ));
-			std::cout << "server acccept ssl client " << ipaddr << " nr " << mHandler.size() << " " << asctime (timeinfo)  << std::endl;
+				char ipaddr[INET_ADDRSTRLEN];
+				inet_ntop( AF_INET, &cli.sin_addr, ipaddr, sizeof( ipaddr ));
+				std::cout << "server acccept ssl client " << ipaddr << " nr " << NetworkManagerBase::GetHandlerListSize() << " " << std::put_time(std::localtime(&t_c), "%F %T.\n")  << std::endl;
+			}
 		}
 	}
 	return connfd;
 }
 
-void NetworkManagementSsl::RemoveFromHandlerList(ClientHandler * targetHandle)
+void NetworkManagementSsl::StartThread(struct tls *tlsToClient,int socketToClient,uint32_t ip_address)
 {
-	bool found = false;
-	mHandlerMutex.lock();
-	for(std::list<ClientHandler*>::iterator it = mHandler.begin();it != mHandler.end();++it)
-	{ 
-		ClientHandler* pHandler = (*it);
-		if(pHandler==targetHandle)
-		{
-			mHandler.erase(it);
-			found = true;
-			break;
-		}
-	}
-	mHandlerMutex.unlock();
-	if(found==false)
-		std::cout << "warning client handler not found!!!" << std::endl;
-}
-
-void NetworkManagementSsl::StartThread(struct tls *tlsToClient,int socketToClient)
-{
-	ClientHandler * pHandler = new ClientHandler(socketToClient);
+	ClientHandler * pHandler = new ClientHandler(socketToClient,ip_address);
 	if(pHandler==nullptr)
 	{
 		std::cout << "memory allocation failed!!!" << std::endl;
@@ -293,7 +283,7 @@ void NetworkManagementSsl::StartThread(struct tls *tlsToClient,int socketToClien
 	{
 		std::thread thread(NetworkManagementSsl::ConnectionHandler, pHandler);
 		thread.detach();
-		mHandler.push_back(pHandler);
+		NetworkManagerBase::AddClientHandler(pHandler);
 	}
 	catch(...)
 	{
@@ -306,7 +296,7 @@ void NetworkManagementSsl::StartThread(struct tls *tlsToClient,int socketToClien
 void* NetworkManagementSsl::ConnectionHandler(ClientHandler* pCHandler)
 {
 	pCHandler->ServeClient();
-	RemoveFromHandlerList(pCHandler);
+	NetworkManagerBase::RemoveFromHandlerList(pCHandler);
 	delete pCHandler;
 	return NULL;
 }

@@ -20,6 +20,7 @@ add_executable(${PROJECT_NAME}
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/UniformResourceIdentifier.cpp"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/HtmlWebsite.cpp"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/NetworkManagementSsl.cpp"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/NetworkManagerBase.cpp"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/main.cpp" )
 
 target_include_directories(${PROJECT_NAME} PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include/")

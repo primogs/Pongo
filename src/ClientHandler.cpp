@@ -19,13 +19,15 @@
 /////////////////////////////////////////////////////////////////////////////////////////
 
 #include "ClientHandler.h"
+#include "NetworkManagerBase.h"
 #include <tls.h>
 
 extern volatile bool keepRunning;
 
-ClientHandler::ClientHandler(int socket):
-mSocket(socket), mTlsConnection(nullptr)
+ClientHandler::ClientHandler(int socket,uint32_t ip_addr):
+mSocket(socket), mTlsConnection(nullptr),mIpAddr(ip_addr)
 {
+	
 }
 
 ClientHandler::~ClientHandler()
@@ -61,6 +63,17 @@ void ClientHandler::ShutdownSocket()
 	else
 	{
 		shutdown(mSocket, SHUT_RD);
+	}
+}
+
+void ClientHandler::CheckTimeout(double timeout)
+{
+	auto now = std::chrono::steady_clock::now();
+    std::chrono::duration<double> diff = now-mStartupTime;
+	if(diff.count()>timeout)
+	{
+		std::cout << "client handler timeout" << std::endl;
+		ShutdownSocket();
 	}
 }
 
@@ -122,6 +135,8 @@ void ClientHandler::ServeClient()
 {
 	const int bufferSize = 4096;
     char buff[bufferSize];
+	
+	mStartupTime = std::chrono::steady_clock::now();
 
     // infinite loop
     while(keepRunning == true) 
@@ -197,6 +212,7 @@ void ClientHandler::ProcessHtmlRequest(std::string varStr)
 	else
 	{
 		SendNotFound();
+		NetworkManagerBase::AddToBlacklist(mIpAddr);
 	}
 }
 

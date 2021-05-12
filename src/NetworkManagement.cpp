@@ -20,8 +20,6 @@
 #include "NetworkManagement.h"
 
 extern volatile bool keepRunning;
-std::list<ClientHandler*> NetworkManagement::mHandler;
-std::mutex NetworkManagement::mHandlerMutex;
 
 int NetworkManagement::mSockfd=0;
 
@@ -79,14 +77,11 @@ void NetworkManagement::RunServerLoop()
 		result = ListenOnSocket(mSockfd);
 		if(result != -1 and keepRunning==true)
 		{
-			int newConnection = AcceptOnSocket(mSockfd);
+			uint32_t ip_address = 0;
+			int newConnection = AcceptOnSocket(mSockfd,ip_address);
 			if(newConnection >= 0)
 			{
-				StartThread(newConnection);
-			}
-			else
-			{
-				result = -1;
+				StartThread(newConnection,ip_address);
 			}
 		}
 	}
@@ -111,23 +106,23 @@ void NetworkManagement::CloseSocket()
 
 void NetworkManagement::ShutdownThreads()
 {
-	mHandlerMutex.lock();
-	for(std::list<ClientHandler*>::iterator it = mHandler.begin();it != mHandler.end();++it)
+	std::list<ClientHandler*> & handler = NetworkManagerBase::GetHandlerList();
+	for(std::list<ClientHandler*>::iterator it = handler.begin();it != handler.end();++it)
 	{ 
 		ClientHandler* pHandler = (*it);
 		pHandler->ShutdownSocket();
 	}
-	mHandlerMutex.unlock();
+	NetworkManagerBase::UnlockHandlerList();
 }
 
 void NetworkManagement::BlockUntilAllThreadsFinished(unsigned int timeout)
 {
-	while(mHandler.empty() == false and timeout>0)
+	while(NetworkManagerBase::IsHandlerListEmpty() == false and timeout>0)
 	{
 		sleep(1);
 		timeout--;
 	}
-	if(mHandler.empty() == false)
+	if(NetworkManagerBase::IsHandlerListEmpty() == false)
 	{
 		std::cout << "not all connection closed!!!" << std::endl;
 	}
@@ -163,7 +158,7 @@ int NetworkManagement::ListenOnSocket(int sockfd)
 	return 0;
 }
 
-int NetworkManagement::AcceptOnSocket(int sockfd)
+int NetworkManagement::AcceptOnSocket(int sockfd,uint32_t &ip_address)
 {
 	struct sockaddr_in cli; 
 	int len = sizeof(cli); 
@@ -176,21 +171,31 @@ int NetworkManagement::AcceptOnSocket(int sockfd)
 	} 
 	else
 	{
-		time_t rawtime;
-		struct tm * timeinfo;
+		ip_address = cli.sin_addr.s_addr;
+		if(NetworkManagerBase::IsBlacklisted(ip_address)==true)
+		{
+			if(close(connfd)== -1)
+			{
+				std::cout << "error in client handler closing socket... " << errno << std::endl;;
+			}
+			connfd = -1;
+		}
+		else
+		{
+			const std::chrono::time_point<std::chrono::system_clock>  now = std::chrono::system_clock::now();
+			const std::time_t t_c = std::chrono::system_clock::to_time_t(now);
 
-		time ( &rawtime );
-		timeinfo = localtime ( &rawtime );
-		char ipaddr[INET_ADDRSTRLEN];
-		inet_ntop( AF_INET, &cli.sin_addr, ipaddr, sizeof( ipaddr ));
-		std::cout << "server acccept the client " << ipaddr << " nr " << mHandler.size() << " "  << asctime (timeinfo) << std::endl;
+			char ipaddr[INET_ADDRSTRLEN];
+			inet_ntop( AF_INET, &cli.sin_addr, ipaddr, sizeof( ipaddr ));
+			std::cout << "server acccept the client " << ipaddr << " nr " << NetworkManagerBase::GetHandlerListSize() << " "  << std::put_time(std::localtime(&t_c), "%F %T.\n") << std::endl;
+		}
 	}
 	return connfd;
 }
 
-void NetworkManagement::StartThread(int socketToClient)
+void NetworkManagement::StartThread(int socketToClient,uint32_t ip_address)
 {
-	ClientHandler * pHandler = new ClientHandler(socketToClient);
+	ClientHandler * pHandler = new ClientHandler(socketToClient,ip_address);
 	if(pHandler==nullptr)
 	{
 		std::cout << "memory allocation failed!!!" << std::endl;
@@ -200,7 +205,7 @@ void NetworkManagement::StartThread(int socketToClient)
 	{
 		std::thread thread(NetworkManagement::ConnectionHandler, pHandler);
 		thread.detach();
-		mHandler.push_back(pHandler);
+		NetworkManagerBase::AddClientHandler(pHandler);
 	}
 	catch(...)
 	{
@@ -209,30 +214,11 @@ void NetworkManagement::StartThread(int socketToClient)
 	}
 }
 
-void NetworkManagement::RemoveFromHandlerList(ClientHandler * targetHandle)
-{
-	bool found = false;
-	mHandlerMutex.lock();
-	for(std::list<ClientHandler*>::iterator it = mHandler.begin();it != mHandler.end();++it)
-	{ 
-		ClientHandler* pHandler = (*it);
-		if(pHandler==targetHandle)
-		{
-			mHandler.erase(it);
-			found = true;
-			break;
-		}
-	}
-	mHandlerMutex.unlock();
-	if(found==false)
-		std::cout << "warning client handler not found!!!" << std::endl;
-}
-
 
 void* NetworkManagement::ConnectionHandler(ClientHandler* pCHandler)
 {
 	pCHandler->ServeClient();
-	RemoveFromHandlerList(pCHandler);
+	NetworkManagerBase::RemoveFromHandlerList(pCHandler);
 	delete pCHandler;
 	return NULL;
 }

@@ -29,8 +29,7 @@
 #include <tuple>
 #include <signal.h>
 #include <arpa/inet.h>
-#include <mutex>
-#include "ClientHandler.h"
+#include "NetworkManagerBase.h"
 
 class NetworkManagementSsl
 {
@@ -51,8 +50,8 @@ private:
 	static void RemoveFromHandlerList(ClientHandler * targetHandle);
 	static int BindToSocket(int sockfd,int port);
 	static int ListenOnSocket(int sockfd);
-	static int AcceptOnSocket(int sockfd,struct tls **tlsConnection);
-	static void StartThread(struct tls *tlsToClient,int socketToClient);
+	static int AcceptOnSocket(int sockfd,uint32_t &ip_address,struct tls **tlsConnection);
+	static void StartThread(struct tls *tlsToClient,int socketToClient,uint32_t ip_address);
 	static void* ConnectionHandler(ClientHandler* pCHandler);
 	static void BlockUntilAllThreadsFinished(unsigned int timeout);
 

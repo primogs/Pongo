@@ -30,7 +30,7 @@
 #include <sstream>
 #include <iostream>
 #include <fstream>
-#include <functional>
+#include <chrono>
 #include "HtmlWebsite.h"
 #include "HttpHeaderRequest.h"
 #include "HttpHeaderResponse.h"
@@ -40,11 +40,12 @@
 class ClientHandler
 {
 public:
-	ClientHandler(int socket);
+	ClientHandler(int socket,uint32_t ip_addr);
 	virtual ~ClientHandler();
 	
 	void CloseSocket();
 	void ShutdownSocket();
+	void CheckTimeout(double timeout);
 	
 	void SetSocketOfClient(struct tls* connection);
 	void SetParentHandlerList();
@@ -70,6 +71,8 @@ private:
 	HttpHeaderRequest 	mRequest;
 	int 				mSocket;
 	struct tls* 		mTlsConnection;
+	uint32_t 			mIpAddr;
+	std::chrono::time_point<std::chrono::steady_clock> 	mStartupTime;
 
 };
 
