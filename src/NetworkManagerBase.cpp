@@ -49,25 +49,39 @@ size_t NetworkManagerBase::GetHandlerListSize()
 void NetworkManagerBase::RemoveFromHandlerList(ClientHandler * targetHandle)
 {
 	bool found = false;
-	std::list<ClientHandler*> & handler = NetworkManagerBase::GetHandlerList();
+	std::list<ClientHandler*> & handler = GetHandlerList();
 	for(std::list<ClientHandler*>::iterator it = handler.begin();it != handler.end();++it)
 	{ 
 		ClientHandler* pHandler = (*it);
 		if(pHandler==targetHandle)
 		{
-			mHandler.erase(it);
+			handler.erase(it);
 			found = true;
 			break;
 		}
 	}
-	NetworkManagerBase::UnlockHandlerList();
+	UnlockHandlerList();
 	if(found==false)
-		std::cout << "warning client handler not found!!!" << std::endl;
+		std::cout << "WARNING client handler not found !!!" << std::endl;
 }
 
 void NetworkManagerBase::AddClientHandler(ClientHandler *pHandler)
 {
-	mHandler.push_back(pHandler);
+	bool found = false;
+	std::list<ClientHandler*> & handler = GetHandlerList();
+	for(std::list<ClientHandler*>::iterator it = handler.begin();it != handler.end();++it)
+	{ 
+		ClientHandler* cHandle = (*it);
+		if(pHandler==cHandle)
+		{
+			found = true;
+			std::cout << "WARNING client handler allready on list !!!" << std::endl;
+			break;
+		}
+	}
+	if(found==false)
+		handler.push_back(pHandler);
+	UnlockHandlerList();
 }
 
 bool NetworkManagerBase::IsBlacklisted(uint32_t ip_addr)
@@ -88,7 +102,7 @@ bool NetworkManagerBase::IsBlacklisted(uint32_t ip_addr)
 
 void NetworkManagerBase::AddToBlacklist(uint32_t ip_addr)
 {
-	const std::chrono::time_point<std::chrono::steady_clock> t = std::chrono::steady_clock::now();
+	const time_t t = time(nullptr);
 		
 	mBlacklistMutex.lock();
 	mBlacklist.push_back(std::make_tuple(ip_addr,t));
@@ -103,11 +117,11 @@ void NetworkManagerBase::ClearTimer(int arg)
 	{
 		if(mBlacklist.empty() == false)
 		{
-			const auto now = std::chrono::steady_clock::now();
+			const time_t now = time(nullptr);
 			mBlacklistMutex.lock();
 			for(pairListIpTimeIterator it = mBlacklist.begin();it != mBlacklist.end();)
 			{
-				if( std::chrono::duration_cast<std::chrono::seconds>(now-std::get<1>(*it)).count() >mBlacklistResetTime)
+				if( difftime(now,std::get<1>(*it)) >mBlacklistResetTime)
 				{
 					it = mBlacklist.erase(it);
 				}
@@ -122,13 +136,19 @@ void NetworkManagerBase::ClearTimer(int arg)
 		
 		if(IsHandlerListEmpty() == false)
 		{
+			const time_t now = time(nullptr);
 			std::list<ClientHandler*> & handler = GetHandlerList();
 			for(std::list<ClientHandler*>::iterator it = handler.begin();it != handler.end();++it)
 			{
-				(*it)->CheckTimeout(mConnectionTimeout);
+				if(difftime(now,(*it)->GetStartupTime())>mConnectionTimeout)
+				{
+					std::cout << "client handler timeout" << std::endl;
+					(*it)->ShutdownSocket();
+				}
 			}
 			UnlockHandlerList();
 		}
+		
 		
 		std::this_thread::sleep_for(std::chrono::seconds(mResetDelay));
 	}

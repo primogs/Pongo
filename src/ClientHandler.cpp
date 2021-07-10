@@ -32,6 +32,7 @@ mSocket(socket), mTlsConnection(nullptr),mIpAddr(ip_addr)
 
 ClientHandler::~ClientHandler()
 {
+	ShutdownSocket();
 }
 
 void ClientHandler::CloseSocket()
@@ -66,15 +67,9 @@ void ClientHandler::ShutdownSocket()
 	}
 }
 
-void ClientHandler::CheckTimeout(double timeout)
+time_t ClientHandler::GetStartupTime()
 {
-	auto now = std::chrono::steady_clock::now();
-    std::chrono::duration<double> diff = now-mStartupTime;
-	if(diff.count()>timeout)
-	{
-		std::cout << "client handler timeout" << std::endl;
-		ShutdownSocket();
-	}
+	return mStartupTime;
 }
 
 void ClientHandler::SetSocketOfClient(struct tls* connection)
@@ -136,7 +131,7 @@ void ClientHandler::ServeClient()
 	const int bufferSize = 4096;
     char buff[bufferSize];
 	
-	mStartupTime = std::chrono::steady_clock::now();
+	mStartupTime = time(nullptr);
 
     // infinite loop
     while(keepRunning == true) 

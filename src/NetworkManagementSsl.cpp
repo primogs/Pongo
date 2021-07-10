@@ -257,12 +257,14 @@ int NetworkManagementSsl::AcceptOnSocket(int sockfd,uint32_t &ip_address,struct 
 			} 
 			else
 			{
-				const std::chrono::time_point<std::chrono::system_clock>  now = std::chrono::system_clock::now();
-				const std::time_t t_c = std::chrono::system_clock::to_time_t(now);
+				const time_t  now = time(nullptr);
+				const std::tm * ptm = std::localtime(&now);
+				char buffer[32];
+				std::strftime(buffer, 32, "%d.%m.%Y %H:%M:%S", ptm);
 
 				char ipaddr[INET_ADDRSTRLEN];
 				inet_ntop( AF_INET, &cli.sin_addr, ipaddr, sizeof( ipaddr ));
-				std::cout << "server acccept ssl client " << ipaddr << " nr " << NetworkManagerBase::GetHandlerListSize() << " " << std::put_time(std::localtime(&t_c), "%F %T.\n")  << std::endl;
+				std::cout << "server acccept ssl client " << ipaddr << " nr " << NetworkManagerBase::GetHandlerListSize() << " " << buffer  << std::endl;
 			}
 		}
 	}
@@ -283,7 +285,6 @@ void NetworkManagementSsl::StartThread(struct tls *tlsToClient,int socketToClien
 	{
 		std::thread thread(NetworkManagementSsl::ConnectionHandler, pHandler);
 		thread.detach();
-		NetworkManagerBase::AddClientHandler(pHandler);
 	}
 	catch(...)
 	{
@@ -295,6 +296,7 @@ void NetworkManagementSsl::StartThread(struct tls *tlsToClient,int socketToClien
 
 void* NetworkManagementSsl::ConnectionHandler(ClientHandler* pCHandler)
 {
+	NetworkManagerBase::AddClientHandler(pCHandler);
 	pCHandler->ServeClient();
 	NetworkManagerBase::RemoveFromHandlerList(pCHandler);
 	delete pCHandler;

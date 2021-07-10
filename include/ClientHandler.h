@@ -30,7 +30,7 @@
 #include <sstream>
 #include <iostream>
 #include <fstream>
-#include <chrono>
+#include <ctime>
 #include "HtmlWebsite.h"
 #include "HttpHeaderRequest.h"
 #include "HttpHeaderResponse.h"
@@ -45,7 +45,7 @@ public:
 	
 	void CloseSocket();
 	void ShutdownSocket();
-	void CheckTimeout(double timeout);
+	time_t GetStartupTime();
 	
 	void SetSocketOfClient(struct tls* connection);
 	void SetParentHandlerList();
@@ -72,7 +72,7 @@ private:
 	int 				mSocket;
 	struct tls* 		mTlsConnection;
 	uint32_t 			mIpAddr;
-	std::chrono::time_point<std::chrono::steady_clock> 	mStartupTime;
+	time_t 				mStartupTime;
 
 };
 

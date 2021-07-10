@@ -8,8 +8,8 @@
 #include <iomanip>
 #include "ClientHandler.h"
 
-typedef std::list<std::tuple<uint32_t,const std::chrono::time_point<std::chrono::steady_clock>> > pairListIpTime;
-typedef std::list<std::tuple<uint32_t,const std::chrono::time_point<std::chrono::steady_clock>> >::iterator pairListIpTimeIterator;
+typedef std::list<std::tuple<uint32_t,const time_t> > pairListIpTime;
+typedef std::list<std::tuple<uint32_t,const time_t> >::iterator pairListIpTimeIterator;
 
 class NetworkManagerBase
 {

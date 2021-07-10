@@ -47,7 +47,6 @@ private:
 	static void RunServerLoop();
 	static void CloseSocket();
 	static void ShutdownThreads();
-	static void RemoveFromHandlerList(ClientHandler * targetHandle);
 	static int BindToSocket(int sockfd,int port);
 	static int ListenOnSocket(int sockfd);
 	static int AcceptOnSocket(int sockfd,uint32_t &ip_address,struct tls **tlsConnection);
@@ -55,8 +54,6 @@ private:
 	static void* ConnectionHandler(ClientHandler* pCHandler);
 	static void BlockUntilAllThreadsFinished(unsigned int timeout);
 
-	static std::list<ClientHandler*> mHandler;
-	static std::mutex mHandlerMutex;
 	static int mSockfd;
 	
 	static struct tls_config *mTlsConfig;
