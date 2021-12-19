@@ -247,19 +247,22 @@ void ElmtCanvas::DrawGraph(std::stringstream &sstr,std::list< std::tuple <double
 	int y = InterpolateInverse(std::get<1>(*it),mMinY,mMaxY,mBoarder+mScaleHeight,mCanvasHeight-mBoarder-mScaleHeight);
 		
 	int prex = x;
-	int prey = y;
+	int avgy = y;
+	int n=1;
 	sstr << "ctx.moveTo(" << x <<", "<< y << ");\n";
 	for(++it;it != graph.end();++it)
 	{
-			
 		x = Interpolate(std::get<0>(*it),mMinX,mMaxX,mBoarder+mScaleWidth,mCanvasWidth-mBoarder-mScaleWidth);
 		y = InterpolateInverse(std::get<1>(*it),mMinY,mMaxY,mBoarder+mScaleHeight,mCanvasHeight-mBoarder-mScaleHeight);
-		if(x != prex or y != prey)
+		if(x != prex)
 		{
-			prex = x;
-			prey = y;
-			sstr << "ctx.lineTo(" << x <<", "<< y << ");\n";
+			sstr << "ctx.lineTo(" << prex <<", "<< avgy/n << ");\n";
+			avgy = 0;
+			n = 0;
 		}
+		prex = x;
+		avgy += y;
+		n++;
 	}
 
 	sstr << "ctx.stroke();\n\n";

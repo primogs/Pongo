@@ -20,12 +20,11 @@
 
 #include "ClientHandler.h"
 #include "NetworkManagerBase.h"
-#include <tls.h>
 
 extern volatile bool keepRunning;
 
 ClientHandler::ClientHandler(int socket,uint32_t ip_addr):
-mSocket(socket), mTlsConnection(nullptr),mIpAddr(ip_addr)
+mSocket(socket), mSslConnection(nullptr),mIpAddr(ip_addr)
 {
 	
 }
@@ -37,16 +36,18 @@ ClientHandler::~ClientHandler()
 
 void ClientHandler::CloseSocket()
 {
-	if(mTlsConnection != nullptr)
+	if(mSslConnection != nullptr)
 	{
-		tls_free(mTlsConnection);
-		mTlsConnection = nullptr;
+		SSL_shutdown(mSslConnection);
+        SSL_free(mSslConnection);
+		mSslConnection = nullptr;
 	}
 	if(mSocket != -1)
 	{
 		if(close(mSocket)== -1)
 		{
-			std::cout << "error in client handler closing socket... " << errno << std::endl;;
+			std::cout << "error in client handler closing socket... " << std::endl;
+			std::cout << '\t' << strerror(errno) << std::endl;
 		}
 		mSocket = -1;
 	}
@@ -54,11 +55,20 @@ void ClientHandler::CloseSocket()
 
 void ClientHandler::ShutdownSocket()
 {
-	if(mTlsConnection != nullptr)
+	if(mSslConnection != nullptr)
 	{
-		if(tls_close(mTlsConnection)<0)
+		int result = 0;
+		while(result==0)
 		{
-			std::cout << "error in client handler closing tls... " << tls_error(mTlsConnection) << std::endl;
+			result = SSL_shutdown(mSslConnection);
+			usleep(10);
+		}
+		
+		if(result<0)
+		{
+			long err = ERR_get_error();
+			char * err_msg = ERR_error_string(err,NULL);
+			std::cout << "error in client handler closing tls... " << err_msg << std::endl;
 		}
 	}
 	else
@@ -72,26 +82,24 @@ time_t ClientHandler::GetStartupTime()
 	return mStartupTime;
 }
 
-void ClientHandler::SetSocketOfClient(struct tls* connection)
+void ClientHandler::SetSocketOfClient(SSL* connection)
 {
-	mTlsConnection = connection;
+	mSslConnection = connection;
 }
 
 ssize_t ClientHandler::Write(const void *buffer, size_t n)
 {
-	if(mTlsConnection != nullptr)
+	if(mSslConnection != nullptr)
 	{
 		const char *cbuffer = reinterpret_cast<const char *>(buffer);	// to avoid "warning: pointer of type ‘void *’ used in arithmetic"
 		while (n > 0) 
 		{
 			ssize_t ret; 
-			ret = tls_write(mTlsConnection, cbuffer, n);
-				
-			if (ret == TLS_WANT_POLLIN || ret == TLS_WANT_POLLOUT)
-				continue;
-			else if (ret == -1)
+			ret = SSL_write(mSslConnection, cbuffer, n);
+			
+			if (ret <= 0)
 			{
-				std::cout << "tls_write failed with " << tls_error(mTlsConnection) << std::endl;
+				CatchSslError(ret,"tls_write failed with ");
 				return n;
 			}
 			cbuffer += ret;
@@ -106,24 +114,48 @@ ssize_t ClientHandler::Write(const void *buffer, size_t n)
 ssize_t ClientHandler::Read(void *buffer, size_t n)
 {
 	int res = 0;
-	if(mTlsConnection != nullptr)
+	if(mSslConnection != nullptr)
 	{
-		res = tls_read(mTlsConnection, buffer, n);
-		if(res==-1)	// 
-		{
-			std::cout << "recved failed with " << tls_error(mTlsConnection) << std::endl; 
-		}
-		
+		res = SSL_read(mSslConnection, buffer, n);
+		if(res <= 0)	 
+			CatchSslError(res,"recved failed with ");
+		else
+			res = n;
 	}
 	else if(mSocket != -1)
 	{
 		res = read(mSocket, buffer, n);
-		if(res==-1 and errno != 0)	// 
+		if(res==-1 and errno != 0)
 		{
-			std::cout << "recved failed with " << errno << std::endl; 
+			std::cout << "recved failed with " << std::endl;
+			std::cout << '\t' << strerror(errno) << std::endl;
 		}
 	}
 	return res;
+}
+
+void ClientHandler::CatchSslError(int res,std::string msg)
+{
+	int err = SSL_get_error(mSslConnection,res);
+	switch (err) 
+	{
+		case SSL_ERROR_WANT_READ:
+		case SSL_ERROR_WANT_WRITE:
+			break;
+
+		case SSL_ERROR_ZERO_RETURN:
+		case SSL_ERROR_SYSCALL:
+			mSslConnection = nullptr;	// SSL_shutdown() must not be called
+			ShutdownSocket();
+			break;
+
+		default:
+			while ((err = ERR_get_error())) 
+			{
+				char * err_msg = ERR_error_string(err, NULL);
+				std::cout << msg << err_msg << std::endl;
+			}
+	}
 }
 
 void ClientHandler::ServeClient()
@@ -137,7 +169,7 @@ void ClientHandler::ServeClient()
     while(keepRunning == true) 
 	{
         // read the message from client and copy it in buffer 
-		const ssize_t recved = Read(buff, sizeof(buff));
+		const ssize_t recved = Read(buff, bufferSize-1);
 		if(recved==-1)
 		{
 			break;
@@ -147,7 +179,7 @@ void ClientHandler::ServeClient()
 			std::cout << "recved connection closed" << std::endl; 
 			break;
 		}
-		else
+		else if(recved<bufferSize)
 		{
 			buff[recved]='\0';
 

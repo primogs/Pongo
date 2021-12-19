@@ -31,6 +31,8 @@
 #include <iostream>
 #include <fstream>
 #include <ctime>
+#include <openssl/ssl.h>
+#include <openssl/err.h>
 #include "HtmlWebsite.h"
 #include "HttpHeaderRequest.h"
 #include "HttpHeaderResponse.h"
@@ -47,7 +49,7 @@ public:
 	void ShutdownSocket();
 	time_t GetStartupTime();
 	
-	void SetSocketOfClient(struct tls* connection);
+	void SetSocketOfClient(SSL* connection);
 	void SetParentHandlerList();
 	void ServeClient();
 private:
@@ -63,6 +65,7 @@ private:
 	void SendResource(std::string type,char * resData,int resSize);
 	std::string GenerateErrorPage(const std::string &errorMsg);
 	std::string BuildResponse(std::string &htmlText,httpStatus status=OK);
+	void CatchSslError(int res,std::string msg);
 	
 	bool CheckHttpArguments();
 
@@ -70,7 +73,7 @@ private:
 	HttpVariables 		mVariables;
 	HttpHeaderRequest 	mRequest;
 	int 				mSocket;
-	struct tls* 		mTlsConnection;
+	SSL* 		        mSslConnection;
 	uint32_t 			mIpAddr;
 	time_t 				mStartupTime;
 

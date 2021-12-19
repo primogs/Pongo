@@ -38,11 +38,11 @@ public:
 	virtual ~NetworkManagement();
 	
 	static void StartWebServer(int port);
-	static void ShutdownSocket();
+	static void CloseSocket();
 private:
 	static bool Init(int port);
 	static void RunServerLoop();
-	static void CloseSocket();
+	
 	static void ShutdownThreads();
 	static int BindToSocket(int sockfd,int port);
 	static int ListenOnSocket(int sockfd);

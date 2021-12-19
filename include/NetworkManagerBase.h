@@ -26,7 +26,7 @@ public:
 	static size_t GetHandlerListSize();
 	static void RemoveFromHandlerList(ClientHandler * targetHandle);
 	static bool IsBlacklisted(uint32_t ip_addr); 
-	static void AddToBlacklist(uint32_t ip_addr); 
+	static void AddToBlacklist(uint32_t ip_addr);
 private:
 	static void ClearTimer(int arg); 
 	

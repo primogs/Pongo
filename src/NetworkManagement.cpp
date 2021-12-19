@@ -85,22 +85,26 @@ void NetworkManagement::RunServerLoop()
 			}
 		}
 	}
-}
-	
-void NetworkManagement::ShutdownSocket()
-{
-	shutdown(mSockfd, SHUT_RD);
+	if(mSockfd!=-1)
+	{
+		if(close(mSockfd)== -1)
+		{
+			std::cout << "error in network manager close... " << std::endl;
+			std::cout << '\t' << strerror(errno) << std::endl;
+		}
+		mSockfd = -1;
+	}
 }
 
 void NetworkManagement::CloseSocket()
 {
 	if(mSockfd!=-1)
 	{
-		if(close(mSockfd)== -1)
+		if(shutdown(mSockfd,SHUT_RDWR))
 		{
-			std::cout << "error in network manager closing... " << errno << std::endl;
+			std::cout << "error in network manager shutdown... " << std::endl;
+			std::cout << '\t' << strerror(errno) << std::endl;
 		}
-		mSockfd = -1;
 	}
 }
 
@@ -160,15 +164,15 @@ int NetworkManagement::ListenOnSocket(int sockfd)
 
 int NetworkManagement::AcceptOnSocket(int sockfd,uint32_t &ip_address)
 {
-	struct sockaddr_in cli; 
-	int len = sizeof(cli); 
-		  
-	// Accept the data packet from client and verification 
-	int connfd = accept(sockfd, (sockaddr*)(&cli),(socklen_t*) &len); 
-	if (connfd < 0) 
-	{ 
-		std::cout << "server acccept failed..." << std::endl; 
-	} 
+	struct sockaddr_in cli;
+	int len = sizeof(cli);
+
+	// Accept the data packet from client and verification
+	int connfd = accept(sockfd, (sockaddr*)(&cli),(socklen_t*) &len);
+	if (connfd < 0)
+	{
+		std::cout << "server acccept failed..." << std::endl;
+	}
 	else
 	{
 		ip_address = cli.sin_addr.s_addr;
@@ -176,7 +180,8 @@ int NetworkManagement::AcceptOnSocket(int sockfd,uint32_t &ip_address)
 		{
 			if(close(connfd)== -1)
 			{
-				std::cout << "error in client handler closing socket... " << errno << std::endl;;
+				std::cout << "error in client handler closing socket... " << std::endl;
+				std::cout << '\t' << strerror(errno) << std::endl;
 			}
 			connfd = -1;
 		}
@@ -214,7 +219,6 @@ void NetworkManagement::StartThread(int socketToClient,uint32_t ip_address)
 		std::cout << "thread creation failed!!!" << std::endl;
 	}
 }
-
 
 void* NetworkManagement::ConnectionHandler(ClientHandler* pCHandler)
 {

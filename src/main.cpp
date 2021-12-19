@@ -29,8 +29,8 @@ volatile bool keepRunning = true;
 void intHandler(int dummy) 
 {
     keepRunning = false;
-	NetworkManagement::ShutdownSocket();
-	NetworkManagementSsl::ShutdownSocket();
+	NetworkManagement::CloseSocket();
+	NetworkManagementSsl::CloseSocket();
 	std::cout << "\nclosing application" << std::endl;
 }
 
@@ -48,7 +48,6 @@ int main(int argc,char * argv[])
 	std::thread thread2(NetworkManagementSsl::StartWebServer, 8081);
 	thread1.join();
 	thread2.join();
-	
 	ResourceManager::Clear();
 	std::cout << "main finished! bye" << std::endl;
 	return 0;

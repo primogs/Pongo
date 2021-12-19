@@ -37,30 +37,34 @@ public:
 	NetworkManagementSsl();
 	virtual ~NetworkManagementSsl();
 	
+	static void CloseSocket();
+	
 	static void SetCertName(const char* cert);
 	static void SetBaseFolder(char* resFolder);
 	
 	static void StartWebServer(int port);
-	static void ShutdownSocket();
 private:
 	static bool Init(int port);
 	static void RunServerLoop();
-	static void CloseSocket();
+	
 	static void ShutdownThreads();
 	static int BindToSocket(int sockfd,int port);
 	static int ListenOnSocket(int sockfd);
-	static int AcceptOnSocket(int sockfd,uint32_t &ip_address,struct tls **tlsConnection);
-	static void StartThread(struct tls *tlsToClient,int socketToClient,uint32_t ip_address);
+	static int AcceptOnSocket(int sockfd,uint32_t &ip_address,SSL **sslConnection);
+	static void StartThread(SSL *sslToClient,int socketToClient,uint32_t ip_address);
 	static void* ConnectionHandler(ClientHandler* pCHandler);
 	static void BlockUntilAllThreadsFinished(unsigned int timeout);
+	static void HandleErrorSSL(std::string msg,int connfd,SSL **sslConnection,int result);
+	static void HandleError(std::string msg,int connfd);
 
 	static int mSockfd;
 	
-	static struct tls_config *mTlsConfig;
-	static struct tls * mTlsConnection;
+	static SSL_CTX * mSslContext;
 
 	static std::string mBaseFolder;
 	static std::string mCertName;
+	
+	static std::string mSslLogName;
 };
 
 #endif // NetworkManagementSSL_H

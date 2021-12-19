@@ -24,4 +24,4 @@ add_executable(${PROJECT_NAME}
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/main.cpp" )
 
 target_include_directories(${PROJECT_NAME} PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include/")
-target_link_libraries(${PROJECT_NAME} PUBLIC pthread mariadb tls)
+target_link_libraries(${PROJECT_NAME} PUBLIC pthread mariadb ssl crypto)
