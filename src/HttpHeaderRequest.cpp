@@ -19,6 +19,7 @@
 /////////////////////////////////////////////////////////////////////////////////////////
 #include "HttpHeaderRequest.h"
 #include <iostream>
+
 HttpHeaderRequest::HttpHeaderRequest(): mRequest(UNKOWN)
 {
 	

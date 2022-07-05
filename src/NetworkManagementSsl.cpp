@@ -294,10 +294,14 @@ int NetworkManagementSsl::AcceptOnSocket(int sockfd,uint32_t &ip_address,SSL **s
 
 void NetworkManagementSsl::StartThread(SSL *sslToClient,int socketToClient,uint32_t ip_address)
 {
-	ClientHandler * pHandler = new ClientHandler(socketToClient,ip_address);
-	if(pHandler==nullptr)
+	ClientHandler * pHandler = nullptr;
+	try
 	{
-		std::cout << "memory allocation failed!!!" << std::endl;
+		pHandler = new ClientHandler(socketToClient,ip_address);
+	}
+	catch(...)
+	{
+		std::cout << "StartThread memory allocation failed!!!" << std::endl;
 		return;
 	}
 		

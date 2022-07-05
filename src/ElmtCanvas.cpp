@@ -66,8 +66,11 @@ var ctx = c.getContext('2d');\n\
 ctx.font = '" << mFontSize <<"px sans-serif';\n\
 ctx.strokeStyle = '#9A9A9A';\n";
 	
+	
 	DrawScaleX(sstr);
-	DrawScaleY(sstr);
+	
+	int exp = CeilYScale();
+	DrawScaleY(sstr,exp+1);
 	
 	sstr << "ctx.fillText('" << mUnitOfXAxis << "', " << mCanvasWidth-mScaleWidth << ", "<< mCanvasHeight- mScaleHeight-2*mBoarder << ");\n";
 	sstr << "ctx.fillText('" << mUnitOfYAxis << "', " << mBoarder+mScaleWidth << ", "<< mScaleHeight << ");\n";
@@ -79,7 +82,7 @@ ctx.strokeStyle = '#9A9A9A';\n";
 		sstr << "ctx.strokeStyle = '#" << mPallet[color] << "';\n\
 ctx.lineWidth = 3;\n";
 		DrawLegende(sstr,color);
-		DrawGraph(sstr,*it);
+		DrawGraphMinMax(sstr,*it);
 	}
 	sstr << "</script>\n";
 	}
@@ -96,7 +99,7 @@ void ElmtCanvas::DrawScaleX(std::stringstream &sstr)
 	
 	
 }
-void ElmtCanvas::DrawScaleY(std::stringstream &sstr)
+void ElmtCanvas::DrawScaleY(std::stringstream &sstr,int exp)
 {
 	if(mLabelList.size()>0)
 	{
@@ -116,7 +119,11 @@ void ElmtCanvas::DrawScaleY(std::stringstream &sstr)
 		double incy = (mMaxY-mMinY)/ny;
 		double minSpace = incy*0.75;
 		for(double y = mMinY;y<(mMaxY-minSpace);y=y+incy)
-			DrawLabelY(sstr, y);
+		{
+			double ry = round(y*(pow(10,exp)));
+			ry = ry*pow(10,-exp);
+			DrawLabelY(sstr, ry);
+		}
 		DrawLabelY(sstr, mMaxY);
 	}
 }
@@ -128,7 +135,10 @@ int ElmtCanvas::MaxLabelInXRange()
 
 int ElmtCanvas::MaxLabelInYRange()
 {
-	return mCanvasWidth/(4*mFontSize);
+	int n=mCanvasWidth/(4*mFontSize);
+	if(n>10)
+		return 10;
+	return n;
 }
 
 void ElmtCanvas::DrawLabelX(std::stringstream &sstr,double x)
@@ -168,7 +178,7 @@ void ElmtCanvas::DrawLabelY(std::stringstream &sstr,double y,std::string &label)
 void ElmtCanvas::DrawLabelY(std::stringstream &sstr,double y)
 {
 	int ypx = InterpolateInverse(y,mMinY,mMaxY,mFontSize+mBoarder,mCanvasHeight-mBoarder-mScaleHeight);
-	sstr << "ctx.fillText('" << std::fixed << std::setprecision(2) << y << "', " << mBoarder << ", "<< ypx << ");\n";
+	sstr << "ctx.fillText('" << y << "', " << mBoarder << ", "<< ypx << ");\n";
 	
 	sstr << "ctx.beginPath();\n";
 	sstr << "ctx.moveTo(" << mBoarder+mScaleWidth <<", "<< ypx << ");\n";
@@ -214,15 +224,25 @@ void ElmtCanvas::AddUnit(std::string yAxis,std::string xAxis)
 	mUnitOfYAxis = yAxis;
 }
 
+void ElmtCanvas::SetMinMaxX(double minX,double maxX)
+{
+	mMinX = minX;
+	mMaxX = maxX;
+}
+
 void ElmtCanvas::AddDataPoint(double x,double y, unsigned short graph)
 {
 	if(isnan(mMinX))
 	{
 		mMinX = x;
 		mMaxX = x;
+	}
+	if(isnan(mMinY))
+	{
 		mMinY = y;
 		mMaxY = y;
 	}
+	
 	if(x<mMinX)
 		mMinX=x;
 	if(x>mMaxX)
@@ -238,19 +258,23 @@ void ElmtCanvas::AddDataPoint(double x,double y, unsigned short graph)
 	mGraph[graph].push_back(std::make_tuple(x,y));
 }
 
-void ElmtCanvas::DrawGraph(std::stringstream &sstr,std::list< std::tuple <double,double> > &graph)
+void ElmtCanvas::DrawGraphAvg(std::stringstream &sstr,std::list< std::tuple <double,double> > &graph)
 {
 	sstr << "ctx.beginPath();\n";
 
 	std::list< std::tuple <double,double> >::iterator it = graph.begin();
 	int x = Interpolate(std::get<0>(*it),mMinX,mMaxX,mBoarder+mScaleWidth,mCanvasWidth-mBoarder-mScaleWidth);
 	int y = InterpolateInverse(std::get<1>(*it),mMinY,mMaxY,mBoarder+mScaleHeight,mCanvasHeight-mBoarder-mScaleHeight);
-		
+	for(++it;it != graph.end() and x<mBoarder+mScaleWidth ;++it)
+	{
+		x = Interpolate(std::get<0>(*it),mMinX,mMaxX,mBoarder+mScaleWidth,mCanvasWidth-mBoarder-mScaleWidth);
+		y = InterpolateInverse(std::get<1>(*it),mMinY,mMaxY,mBoarder+mScaleHeight,mCanvasHeight-mBoarder-mScaleHeight);
+	}
 	int prex = x;
 	int avgy = y;
 	int n=1;
 	sstr << "ctx.moveTo(" << x <<", "<< y << ");\n";
-	for(++it;it != graph.end();++it)
+	for(++it;it != graph.end() and x<mBoarder+mScaleWidth;++it)
 	{
 		x = Interpolate(std::get<0>(*it),mMinX,mMaxX,mBoarder+mScaleWidth,mCanvasWidth-mBoarder-mScaleWidth);
 		y = InterpolateInverse(std::get<1>(*it),mMinY,mMaxY,mBoarder+mScaleHeight,mCanvasHeight-mBoarder-mScaleHeight);
@@ -259,12 +283,49 @@ void ElmtCanvas::DrawGraph(std::stringstream &sstr,std::list< std::tuple <double
 			sstr << "ctx.lineTo(" << prex <<", "<< avgy/n << ");\n";
 			avgy = 0;
 			n = 0;
+			prex = x;
 		}
-		prex = x;
 		avgy += y;
 		n++;
 	}
 
+	sstr << "ctx.stroke();\n\n";
+}
+
+void ElmtCanvas::DrawGraphMinMax(std::stringstream &sstr,std::list< std::tuple <double,double> > &graph)
+{
+	sstr << "ctx.beginPath();\n";
+
+	std::list< std::tuple <double,double> >::iterator it = graph.begin();
+	int x = Interpolate(std::get<0>(*it),mMinX,mMaxX,mBoarder+mScaleWidth,mCanvasWidth-mBoarder-mScaleWidth);
+	int y = InterpolateInverse(std::get<1>(*it),mMinY,mMaxY,mBoarder+mScaleHeight,mCanvasHeight-mBoarder-mScaleHeight);
+	for(++it;it != graph.end() and x<mBoarder+mScaleWidth ;++it)
+	{
+		x = Interpolate(std::get<0>(*it),mMinX,mMaxX,mBoarder+mScaleWidth,mCanvasWidth-mBoarder-mScaleWidth);
+		y = InterpolateInverse(std::get<1>(*it),mMinY,mMaxY,mBoarder+mScaleHeight,mCanvasHeight-mBoarder-mScaleHeight);
+	}
+	
+	int prex = x;
+	int miny = y;
+	int maxy = y;
+	sstr << "ctx.moveTo(" << x <<", "<< y << ");\n";
+	for(++it;it != graph.end() and x<=mCanvasWidth-mBoarder-mScaleWidth;++it)
+	{
+		x = Interpolate(std::get<0>(*it),mMinX,mMaxX,mBoarder+mScaleWidth,mCanvasWidth-mBoarder-mScaleWidth);
+		y = InterpolateInverse(std::get<1>(*it),mMinY,mMaxY,mBoarder+mScaleHeight,mCanvasHeight-mBoarder-mScaleHeight);
+		if(x != prex)
+		{
+			sstr << "ctx.lineTo(" << prex <<", "<< miny << ");\n";
+			if(miny!=maxy)
+				sstr << "ctx.lineTo(" << prex <<", "<< maxy << ");\n";
+			miny = maxy = y;
+			prex = x;
+		}
+		if(y>maxy)
+			maxy = y;
+		if(y<miny)
+			miny = y;
+	}
 	sstr << "ctx.stroke();\n\n";
 }
 
@@ -275,4 +336,23 @@ void ElmtCanvas::DrawLegende(std::stringstream &sstr,unsigned int n)
 		sstr << "ctx.fillStyle = '#" << mPallet[n] << "';\n\
 ctx.fillText('" << mLegende[n] << "', " << mCanvasWidth-mScaleWidth << ", "<< mScaleHeight+mBoarder+((1+n)*(mFontSize+mBoarder)) << ");\n";
 	}
+}
+
+int ElmtCanvas::CeilYScale()
+{
+	int n=0;
+	double maxy = mMaxY;
+	while(maxy*(pow(10,n))<1000.0)
+	{
+		n++;
+	}
+	while(maxy*(pow(10,n))>1000.0)
+	{
+		n--;
+	}
+	mMinY = floor(mMinY*(pow(10,n)));
+	mMaxY = ceil(mMaxY*(pow(10,n)));
+	mMinY = mMinY*pow(10,-n);
+	mMaxY = mMaxY*pow(10,-n);
+	return n;
 }

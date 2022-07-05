@@ -202,12 +202,17 @@ int NetworkManagement::AcceptOnSocket(int sockfd,uint32_t &ip_address)
 
 void NetworkManagement::StartThread(int socketToClient,uint32_t ip_address)
 {
-	ClientHandler * pHandler = new ClientHandler(socketToClient,ip_address);
-	if(pHandler==nullptr)
+	ClientHandler * pHandler = nullptr;
+	try
 	{
-		std::cout << "memory allocation failed!!!" << std::endl;
+		pHandler = new ClientHandler(socketToClient,ip_address);
+	}
+	catch(...)
+	{
+		std::cout << "StartThread memory allocation failed!!!" << std::endl;
 		return;
 	}
+	
 	try
 	{
 		std::thread thread(NetworkManagement::ConnectionHandler, pHandler);

@@ -23,8 +23,9 @@
 
 #include <map>
 #include <string>
+#include <mutex>
 
-enum resType {NONE,JPEG,PNG,ICON,SVG};
+enum resType {NONE,JPEG,PNG,ICON,SVG,ZIP};
 class ResourceManager
 {
 public:
@@ -45,6 +46,7 @@ private:
 	static std::string mBaseFolder;
 	static std::map<std::string, std::tuple<char*,int> > mCache;
 	static std::map<std::string,resType > mTypes;
+	static std::mutex mLoadMutex;
 };
 
 #endif // RESSOURCEMANAGER_H

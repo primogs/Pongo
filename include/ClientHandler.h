@@ -33,6 +33,7 @@
 #include <ctime>
 #include <openssl/ssl.h>
 #include <openssl/err.h>
+#include <arpa/inet.h>
 #include "HtmlWebsite.h"
 #include "HttpHeaderRequest.h"
 #include "HttpHeaderResponse.h"
@@ -61,6 +62,7 @@ private:
 	void SendNotFound();
 	void SendBadRequest();
 	void SendNotImplemented();
+	void SendTooManyRequests();
 	void SendHtmlPage(std::string htmlText);
 	void SendResource(std::string type,char * resData,int resSize);
 	std::string GenerateErrorPage(const std::string &errorMsg);
@@ -75,6 +77,7 @@ private:
 	int 				mSocket;
 	SSL* 		        mSslConnection;
 	uint32_t 			mIpAddr;
+	std::string			mIpStr;
 	time_t 				mStartupTime;
 
 };

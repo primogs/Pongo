@@ -25,6 +25,7 @@
 std::string ResourceManager::mBaseFolder = "resources";
 std::map<std::string, std::tuple<char*,int> > ResourceManager::mCache;
 std::map<std::string,resType > ResourceManager::mTypes;
+std::mutex ResourceManager::mLoadMutex;
 	
 ResourceManager::ResourceManager()
 {
@@ -56,7 +57,6 @@ bool ResourceManager::isAvailable(const std::string &name)
 	if(name.length()<5 or name.find("..") != std::string::npos or name.find("./") != std::string::npos)
 		return false;
 	
-	std::cout << "request resource " << name << std::endl;
 	if(InCache(name))
 		return true;
 		
@@ -71,7 +71,13 @@ char* ResourceManager::Get(const std::string &name, int &size)
 	size = 0;
 	if(!InCache(name))
 	{
-		if(LoadResource(name)==false)
+		bool result = false;
+		if (mLoadMutex.try_lock())	// load only one resource at time
+		{
+			result = LoadResource(name);
+			mLoadMutex.unlock();
+		}
+		if(result==false)
 			return NULL;
 	}
 	return GetResourceFromCache(name,size);
@@ -85,7 +91,7 @@ char* ResourceManager::GetResourceFromCache(const std::string &name, int &size)
 }
 
 bool ResourceManager::LoadResource(const std::string &name)
-{
+{	
 	resType type = DetermineType(name);
 	if(type == NONE)
 		return false;
@@ -102,10 +108,14 @@ bool ResourceManager::LoadResource(const std::string &name)
 		return false;
 		
 	file.seekg(0,file.beg);
-	char *fileData = new char [fileSize];
-	if(fileData==nullptr)
+	char *fileData = nullptr;
+	try 
 	{
-		std::cout << "memory allocation failed!!!" << std::endl;
+		fileData = new char [fileSize];
+	}
+	catch(...)
+	{
+		std::cout << "LoadResource memory allocation failed!!!" << std::endl;
 		return false;
 	}
 	file.read(fileData,fileSize);
@@ -143,6 +153,11 @@ std::string ResourceManager::ContentType(const std::string &name)
 			res = "image/svg+xml";	// icons should be jpeg
 		}
 		break;
+		case ZIP:
+		{
+			res = "application/zip";
+		}
+		break;
 		default:
 		{
 			res = "";
@@ -173,6 +188,10 @@ resType ResourceManager::DetermineType(const std::string &name)
 		else if(appendix== "svg")
 		{
 			return SVG;
+		}
+		else if(appendix== "zip")
+		{
+			return ZIP;
 		}
 		
 	 }

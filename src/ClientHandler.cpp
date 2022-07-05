@@ -26,7 +26,9 @@ extern volatile bool keepRunning;
 ClientHandler::ClientHandler(int socket,uint32_t ip_addr):
 mSocket(socket), mSslConnection(nullptr),mIpAddr(ip_addr)
 {
-	
+	char ipaddr[INET_ADDRSTRLEN];
+	inet_ntop( AF_INET, &mIpAddr, ipaddr, sizeof( ipaddr ));
+	mIpStr = ipaddr;
 }
 
 ClientHandler::~ClientHandler()
@@ -204,11 +206,16 @@ void ClientHandler::Process(std::stringstream &sstr)
 			case GET:
 			{
 				const std::string path = mRequest.getPath();
+				std::cout << "GET(" << mIpStr << "): " << path << std::endl;
+				
 				if(ResourceManager::isAvailable(path))
 				{
 					int resSize=0;
 					char* resData = ResourceManager::Get(path,resSize);
-					SendResource(ResourceManager::ContentType(path),resData,resSize);
+					if(resData==NULL)
+						SendTooManyRequests();
+					else
+						SendResource(ResourceManager::ContentType(path),resData,resSize);
 				}
 				else
 				{
@@ -218,6 +225,7 @@ void ClientHandler::Process(std::stringstream &sstr)
 			break;
 			case POST:
 			{
+				std::cout << "POST(" << mIpStr << "): " << sstr.str() << std::endl;
 				ProcessHtmlRequest(sstr.str());
 			}
 			break;
@@ -299,6 +307,16 @@ void ClientHandler::SendNotFound()
 	std::string resp =  BuildResponse(page,NotFound);
 	Write(resp.c_str(), resp.length());
 }
+
+
+void ClientHandler::SendTooManyRequests()
+{
+	std::string page = GenerateErrorPage("Too Many Requests 429");
+	std::string resp =  BuildResponse(page,TooManyRequests);
+	Write(resp.c_str(), resp.length());
+}
+
+
 
 void ClientHandler::SendResource(std::string type,char * resData,int resSize)
 {

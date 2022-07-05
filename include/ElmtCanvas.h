@@ -38,7 +38,7 @@ public:
 	
 	void ClearGraph();
 	
-	void  Paint(std::stringstream &site,HttpVariables &hVar) override;
+	void Paint(std::stringstream &site,HttpVariables &hVar) override;
 
 	void SetCanvasSize(int width,int height);
 	void DisableTimeline();
@@ -49,12 +49,15 @@ public:
 	
 	void AddUnit(std::string yAxis,std::string xAxis);
 	void AddLegende(std::vector<std::string> &label);
+	
+	void SetMinMaxX(double minX,double maxX);
 private:
 	int MaxLabelInXRange();
 	int MaxLabelInYRange();
 	
+	int  CeilYScale();
 	void DrawScaleX(std::stringstream &sstr);
-	void DrawScaleY(std::stringstream &sstr);
+	void DrawScaleY(std::stringstream &sstr,int exp=0);
 	void DrawLegende(std::stringstream &sstr,unsigned int n);
 	
 	int MapX(double x, int pxmin, int pxmax);
@@ -66,7 +69,8 @@ private:
 	int Interpolate(double a,double amin,double amax,int bmin,int bmax);
 	int InterpolateInverse(double a,double amin,double amax,int bmin,int bmax);
 	
-	void DrawGraph(std::stringstream &sstr,std::list< std::tuple <double,double> > &graph);
+	void DrawGraphAvg(std::stringstream &sstr,std::list< std::tuple <double,double> > &graph);
+	void DrawGraphMinMax(std::stringstream &sstr,std::list< std::tuple <double,double> > &graph);
 	std::vector< std::list< std::tuple <double,double> > > mGraph;
 	
 	int mCanvasWidth;
