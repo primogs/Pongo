@@ -21,7 +21,6 @@
 #ifndef NetworkManagement_H
 #define NetworkManagement_H
 
-#include <sys/socket.h> 
 #include <errno.h>
 #include <iostream>
 #include <thread>
@@ -38,20 +37,18 @@ public:
 	virtual ~NetworkManagement();
 	
 	static void StartWebServer(int port);
-	static void CloseSocket();
+	static void CloseServerSocket();
 private:
 	static bool Init(int port);
 	static void RunServerLoop();
 	
-	static void ShutdownThreads();
-	static int BindToSocket(int sockfd,int port);
-	static int ListenOnSocket(int sockfd);
-	static int AcceptOnSocket(int sockfd,uint32_t &ip_address);
+	static int BindToSocket(int port);
+	static int ListenOnSocket();
+	static int AcceptOnSocket(uint32_t &ip_address);
 	static void StartThread(int socketToClient,uint32_t ip_address);
 	static void* ConnectionHandler(ClientHandler* pCHandler);
-	static void BlockUntilAllThreadsFinished(unsigned int timeout);
 		
-	static int mSockfd;
+	static int mServerSock;
 };
 
 #endif // NetworkManagement_H

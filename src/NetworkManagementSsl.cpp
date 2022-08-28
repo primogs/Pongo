@@ -18,12 +18,8 @@
 //    Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 /////////////////////////////////////////////////////////////////////////////////////////
 #include "NetworkManagementSsl.h"
-#include <openssl/ssl.h>
-#include <openssl/err.h>
 
-extern volatile bool keepRunning;
-
-int NetworkManagementSsl::mSockfd=0;
+int NetworkManagementSsl::mSslServerSock=-1;
 SSL_CTX * NetworkManagementSsl::mSslContext= nullptr;
 std::string NetworkManagementSsl::mBaseFolder = "certs/";
 std::string NetworkManagementSsl::mCertName;
@@ -55,12 +51,7 @@ void NetworkManagementSsl::StartWebServer(int port)
 	{
 		std::cout << "web server listen on port "<< port << std::endl;
 		RunServerLoop();
-		
-		ShutdownThreads();
-		BlockUntilAllThreadsFinished(30u);
-
-		CloseSocket();
-		std::cout << "ssl web server closed" << std::endl;
+		std::cout << "\033[0;31m" << "thread2 ssl web server closed\n" << "\033[0m" << std::endl;
 	}
 }
 
@@ -98,65 +89,59 @@ bool NetworkManagementSsl::Init(int port)
 		
 	int result = 0;
     // socket create and verification 
-    mSockfd = socket(AF_INET, SOCK_STREAM, 0); 
-    if (mSockfd == -1) 
+    mSslServerSock = socket(AF_INET, SOCK_STREAM, 0); 
+    if (mSslServerSock == -1) 
 	{ 
         std::cout << "socket creation failed..." << std::endl; 
         result = -1; 
     } 
     else
 	{
-		int enable = 1;																	// avoid "socket bind failed with 98" after program restart
-		result = setsockopt(mSockfd, SOL_SOCKET, SO_REUSEADDR, &enable, sizeof(int));
+		int enable = 1;		// avoid "socket bind failed with 98" after program restart
+		result = setsockopt(mSslServerSock, SOL_SOCKET, SO_REUSEADDR, &enable, sizeof(int));
 		if (result < 0)
 		{
 			std::cout << "setsockopt(SO_REUSEADDR) failed ..." << std::endl; 
 		}
 		
-		
-		struct timeval tv;
-		tv.tv_sec = 20;  // 30 Secs Timeout to  avoid blocking
-		setsockopt(mSockfd, SOL_SOCKET, SO_RCVTIMEO,(struct timeval *)&tv,sizeof(struct timeval));
+		struct timeval tv = {0};	// add timeout, otherwise thread will run forever
+		tv.tv_sec = 20;
+		result = setsockopt(mSslServerSock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
 		if (result < 0)
 		{
-			std::cout << "setsockopt(SO_RCVTIMEO) failed ..." << std::endl; 
+			std::cout << "setsockopt(SO_RCVTIMEO) ssl failed ..." << std::endl; 
 		}
 		
-		BindToSocket(mSockfd,port);
+		BindToSocket(port);
 	}
 	return true;
 }
 
 void NetworkManagementSsl::RunServerLoop()
 {
-	int result = 0;
-	while(result == 0 and keepRunning==true)
+	while(true)
 	{
-		result = ListenOnSocket(mSockfd);
-		if(result != -1 and keepRunning==true)
+		if(ListenOnSocket() != -1)
 		{
-			SSL* sslConnection = NULL;
+			SSL* sslConnection = nullptr;
 			uint32_t ip_address = 0;
-			int newConnection = NetworkManagementSsl::AcceptOnSocket(mSockfd,ip_address,&sslConnection);
-			if(newConnection >=0 and sslConnection != nullptr)
+			int clientSock = NetworkManagementSsl::AcceptOnSocket(ip_address,&sslConnection);
+			if(clientSock >=0 and sslConnection != nullptr)
 			{
-				StartThread(sslConnection,newConnection,ip_address);
+				StartThread(sslConnection,clientSock,ip_address);
 			}
 		}
+		else
+		{
+			break;
+		}
 	}
+	CloseServerSocket();
 }
 
-void NetworkManagementSsl::CloseSocket()
+void NetworkManagementSsl::CloseServerSocket()
 {
-	if(mSockfd!=-1)
-	{
-		if(close(mSockfd)== -1)
-		{
-			std::cout << "error in network manager ssl closing socket... " << std::endl;
-			std::cout << '\t' << strerror(errno) << std::endl;
-		}
-		mSockfd = -1;
-	}
+	NetworkManagerBase::CloseSocket(mSslServerSock,nullptr);
 	if(mSslContext != nullptr)
 	{
 		SSL_CTX_free(mSslContext);
@@ -164,31 +149,7 @@ void NetworkManagementSsl::CloseSocket()
 	}
 }
 
-void NetworkManagementSsl::ShutdownThreads()
-{
-	std::list<ClientHandler*> & handler = NetworkManagerBase::GetHandlerList();
-	for(std::list<ClientHandler*>::iterator it = handler.begin();it != handler.end();++it)
-	{ 
-		ClientHandler* pHandler = (*it);
-		pHandler->CloseSocket();
-	}
-	NetworkManagerBase::UnlockHandlerList();
-}
-
-void NetworkManagementSsl::BlockUntilAllThreadsFinished(unsigned int timeout)
-{
-	while(NetworkManagerBase::IsHandlerListEmpty() == false and timeout>0)
-	{
-		sleep(1);
-		timeout--;
-	}
-	if(NetworkManagerBase::IsHandlerListEmpty() == false)
-	{
-		std::cout << "not all connection closed!!!" << std::endl;
-	}
-}
-
-int NetworkManagementSsl::BindToSocket(int sockfd,int port)
+int NetworkManagementSsl::BindToSocket(int port)
 {
 	struct sockaddr_in servaddr; 
     memset(&servaddr,0, sizeof(servaddr)); 
@@ -198,7 +159,7 @@ int NetworkManagementSsl::BindToSocket(int sockfd,int port)
     servaddr.sin_addr.s_addr 	= htonl(INADDR_ANY); 
     servaddr.sin_port 			= htons(port); 
     // Binding newly created socket to given IP and verification 
-    if ((bind(sockfd, (sockaddr*)&servaddr, sizeof(servaddr))) != 0) 
+    if ((bind(mSslServerSock, (sockaddr*)&servaddr, sizeof(servaddr))) != 0) 
 	{ 
         std::cout << "socket bind failed with " << std::endl; 
 		std::cout << '\t' << strerror(errno) << std::endl;
@@ -207,28 +168,27 @@ int NetworkManagementSsl::BindToSocket(int sockfd,int port)
 	return 0;
 }
 
-int NetworkManagementSsl::ListenOnSocket(int sockfd)
+int NetworkManagementSsl::ListenOnSocket()
 {
 	// Now server is ready to listen and verification
 	const int maxPendingConnection = 16;
-	if ((listen(sockfd, maxPendingConnection)) != 0) 
+	if ((listen(mSslServerSock, maxPendingConnection)) != 0) 
 	{
-		std::cout << "ssl server listen failed... " << std::endl; 
-		std::cout << '\t' << strerror(errno) << std::endl;
+		std::cout << "ssl server listen failed with:\n\t" << strerror(errno) << std::endl;
 		return -1; 
 	}
 	return 0;
 }
 
-int NetworkManagementSsl::AcceptOnSocket(int sockfd,uint32_t &ip_address,SSL **sslConnection)
+int NetworkManagementSsl::AcceptOnSocket(uint32_t &ip_address,SSL **sslConnection)
 {
 	*sslConnection = nullptr;
 	struct sockaddr_in cli;
 	int len = sizeof(cli);
 		  
 	// Accept the data packet from client and verification 
-	int connfd = accept(sockfd, (sockaddr*)(&cli),(socklen_t*) &len); 
-	if (connfd < 0) 
+	int clientSock = accept(mSslServerSock, (sockaddr*)(&cli),(socklen_t*) &len); 
+	if (clientSock < 0) 
 	{ 
 		if(errno == EAGAIN)
 			return -1;
@@ -237,16 +197,11 @@ int NetworkManagementSsl::AcceptOnSocket(int sockfd,uint32_t &ip_address,SSL **s
 		std::cout << '\t' << strerror(errno) << std::endl;
 	} 
 	else
-	{
+	{		
 		ip_address = cli.sin_addr.s_addr;
 		if(NetworkManagerBase::IsBlacklisted(ip_address)==true)
 		{
-			if(close(connfd)== -1)
-			{
-				std::cout << "error in client handler closing socket... " << std::endl;
-				std::cout << '\t' << strerror(errno) << std::endl;
-			}
-			connfd = -1;
+			NetworkManagerBase::CloseSocket(clientSock,sslConnection);
 		}
 		else
 		{
@@ -254,28 +209,31 @@ int NetworkManagementSsl::AcceptOnSocket(int sockfd,uint32_t &ip_address,SSL **s
 			
 			if(mSslContext==nullptr)
 			{
-				HandleError("mSslContext invalid... ",connfd);
+				HandleError("mSslContext invalid... ",clientSock);
+				NetworkManagerBase::CloseSocket(clientSock,sslConnection);
 				return -1;
 			}
 			
 			*sslConnection = SSL_new(mSslContext);
 			if((*sslConnection) == nullptr)
 			{
-				HandleError("SSL_new failed... ",connfd);
+				HandleError("SSL_new failed... ",clientSock);
+				NetworkManagerBase::CloseSocket(clientSock,sslConnection);
 				return -1;
 			}
 				
-			result = SSL_set_fd(*sslConnection, connfd);
+			result = SSL_set_fd(*sslConnection, clientSock);
 			if (result <= 0)
 			{
-				HandleError("SSL_set_fd failed... ",connfd);
+				HandleError("SSL_set_fd failed... ",clientSock);
+				NetworkManagerBase::CloseSocket(clientSock,sslConnection);
 				return -1;
 			}
 			
 			result = SSL_accept(*sslConnection);
 			if (result <= 0)
 			{
-				HandleErrorSSL("SSL_accept failed... ",connfd,sslConnection,result);
+				NetworkManagerBase::CloseSocket(clientSock,sslConnection);
 				return -1;
 			}
 				
@@ -286,26 +244,27 @@ int NetworkManagementSsl::AcceptOnSocket(int sockfd,uint32_t &ip_address,SSL **s
 
 			char ipaddr[INET_ADDRSTRLEN];
 			inet_ntop( AF_INET, &cli.sin_addr, ipaddr, sizeof( ipaddr ));
-			std::cout << "server acccept ssl client " << ipaddr << " nr " << NetworkManagerBase::GetHandlerListSize() << " " << buffer  << std::endl;
+			std::cout << "\033[0;32m" << "server acccept ssl client " << ipaddr << " nr " << NetworkManagerBase::GetHandlerListSize() << " " << buffer << "\033[0m" << std::endl;
 		}
 	}
-	return connfd;
+	return clientSock;
 }
 
-void NetworkManagementSsl::StartThread(SSL *sslToClient,int socketToClient,uint32_t ip_address)
+void NetworkManagementSsl::StartThread(SSL *sslToClient,int clientSock,uint32_t ip_address)
 {
 	ClientHandler * pHandler = nullptr;
 	try
 	{
-		pHandler = new ClientHandler(socketToClient,ip_address);
+		pHandler = new ClientHandler(sslToClient,clientSock,ip_address);
 	}
 	catch(...)
 	{
+		close(clientSock);
+		SSL_free(sslToClient);
 		std::cout << "StartThread memory allocation failed!!!" << std::endl;
 		return;
 	}
 		
-	pHandler->SetSocketOfClient(sslToClient);
 	try
 	{
 		std::thread thread(NetworkManagementSsl::ConnectionHandler, pHandler);
@@ -313,6 +272,8 @@ void NetworkManagementSsl::StartThread(SSL *sslToClient,int socketToClient,uint3
 	}
 	catch(...)
 	{
+		close(clientSock);
+		SSL_free(sslToClient);
 		delete pHandler;
 		std::cout << "thread creation failed!!!" << std::endl;
 	}

@@ -24,14 +24,25 @@
 #include "NetworkManagementSsl.h"
 #include "ElmtCanvas.h"
 
-volatile bool keepRunning = true;
-
 void intHandler(int dummy) 
 {
-    keepRunning = false;
-	NetworkManagement::CloseSocket();
-	NetworkManagementSsl::CloseSocket();
-	std::cout << "\nclosing application" << std::endl;
+	std::cout << "\033[0;31m" << "\nstarting application shutdown sequence\n" << "\033[0m" << std::endl;
+	NetworkManagerBase::CloseAllClientSockets();
+	NetworkManagement::CloseServerSocket();
+	NetworkManagementSsl::CloseServerSocket();
+}
+
+void BlockUntilAllClientThreadsClosed(int timeout)
+{
+	while(NetworkManagerBase::IsHandlerListEmpty() == false and timeout>0)
+	{
+		sleep(1);
+		timeout--;
+	}
+	if(NetworkManagerBase::IsHandlerListEmpty() == false)
+	{
+		std::cout << "\033[0;31m" << "not all connection closed!!!" << "\033[0m" << std::endl;
+	}
 }
 
 int main(int argc,char * argv[]) 
@@ -46,9 +57,17 @@ int main(int argc,char * argv[])
 	
 	std::thread thread1(NetworkManagement::StartWebServer, 8080);
 	std::thread thread2(NetworkManagementSsl::StartWebServer, 8081);
+	
+	std::thread thread3(NetworkManagerBase::ClearTimer,0);
+	
 	thread1.join();
 	thread2.join();
+	thread3.join();
+	
+	BlockUntilAllClientThreadsClosed(30);
+	
 	ResourceManager::Clear();
+	
 	std::cout << "main finished! bye" << std::endl;
 	return 0;
 } 

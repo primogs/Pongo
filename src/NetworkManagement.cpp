@@ -19,9 +19,7 @@
 /////////////////////////////////////////////////////////////////////////////////////////
 #include "NetworkManagement.h"
 
-extern volatile bool keepRunning;
-
-int NetworkManagement::mSockfd=0;
+int NetworkManagement::mServerSock=-1;
 
 NetworkManagement::NetworkManagement()
 {
@@ -37,10 +35,7 @@ void NetworkManagement::StartWebServer(int port)
 	{
 		std::cout << "web server listen on port "<< port << std::endl;
 		RunServerLoop();
-		ShutdownThreads();
-		BlockUntilAllThreadsFinished(30u);
-		CloseSocket();
-		std::cout << "web server closed" << std::endl;
+		std::cout << "\033[0;31m" << "thread1 web server closed\n" << "\033[0m" << std::endl;
 	}
 }
 
@@ -48,8 +43,8 @@ bool NetworkManagement::Init(int port)
 {
 	int result = 0;
     // socket create and verification 
-    mSockfd = socket(AF_INET, SOCK_STREAM, 0); 
-    if (mSockfd == -1) 
+    mServerSock = socket(AF_INET, SOCK_STREAM, 0); 
+    if (mServerSock == -1) 
 	{ 
         std::cout << "socket creation failed..." << std::endl; 
         result = -1;
@@ -57,82 +52,45 @@ bool NetworkManagement::Init(int port)
     } 
     else
 	{
-		int enable = 1;																	// avoid "socket bind failed with 98" after program restart
-		result = setsockopt(mSockfd, SOL_SOCKET, SO_REUSEADDR, &enable, sizeof(int));
+		int enable = 1;		// avoid "socket bind failed with 98" after program restart
+		result = setsockopt(mServerSock, SOL_SOCKET, SO_REUSEADDR, &enable, sizeof(int));
 		if (result < 0)
 		{
 			std::cout << "setsockopt(SO_REUSEADDR) failed ..." << std::endl; 
 		}
 		
-		BindToSocket(mSockfd,port);
+		BindToSocket(port);
 	}
 	return true;
 }
 
 void NetworkManagement::RunServerLoop()
 {
-	int result = 0;
-	while(result == 0 and keepRunning==true)
+	while(true)
 	{
-		result = ListenOnSocket(mSockfd);
-		if(result != -1 and keepRunning==true)
+		if(ListenOnSocket() != -1)
 		{
 			uint32_t ip_address = 0;
-			int newConnection = AcceptOnSocket(mSockfd,ip_address);
-			if(newConnection >= 0)
+			int clientSock = AcceptOnSocket(ip_address);
+			if(clientSock >= 0)
 			{
-				StartThread(newConnection,ip_address);
+				StartThread(clientSock,ip_address);
 			}
 		}
-	}
-	if(mSockfd!=-1)
-	{
-		if(close(mSockfd)== -1)
+		else
 		{
-			std::cout << "error in network manager close... " << std::endl;
-			std::cout << '\t' << strerror(errno) << std::endl;
-		}
-		mSockfd = -1;
-	}
-}
-
-void NetworkManagement::CloseSocket()
-{
-	if(mSockfd!=-1)
-	{
-		if(shutdown(mSockfd,SHUT_RDWR))
-		{
-			std::cout << "error in network manager shutdown... " << std::endl;
-			std::cout << '\t' << strerror(errno) << std::endl;
+			break;
 		}
 	}
+	CloseServerSocket();
 }
 
-void NetworkManagement::ShutdownThreads()
+void NetworkManagement::CloseServerSocket()
 {
-	std::list<ClientHandler*> & handler = NetworkManagerBase::GetHandlerList();
-	for(std::list<ClientHandler*>::iterator it = handler.begin();it != handler.end();++it)
-	{ 
-		ClientHandler* pHandler = (*it);
-		pHandler->ShutdownSocket();
-	}
-	NetworkManagerBase::UnlockHandlerList();
+	NetworkManagerBase::CloseSocket(mServerSock,nullptr);
 }
 
-void NetworkManagement::BlockUntilAllThreadsFinished(unsigned int timeout)
-{
-	while(NetworkManagerBase::IsHandlerListEmpty() == false and timeout>0)
-	{
-		sleep(1);
-		timeout--;
-	}
-	if(NetworkManagerBase::IsHandlerListEmpty() == false)
-	{
-		std::cout << "not all connection closed!!!" << std::endl;
-	}
-}
-
-int NetworkManagement::BindToSocket(int sockfd,int port)
+int NetworkManagement::BindToSocket(int port)
 {
 	struct sockaddr_in servaddr; 
     memset(&servaddr,0, sizeof(servaddr)); 
@@ -142,7 +100,7 @@ int NetworkManagement::BindToSocket(int sockfd,int port)
     servaddr.sin_addr.s_addr 	= htonl(INADDR_ANY); 
     servaddr.sin_port 			= htons(port); 
     // Binding newly created socket to given IP and verification 
-    if ((bind(sockfd, (sockaddr*)&servaddr, sizeof(servaddr))) != 0) 
+    if ((bind(mServerSock, (sockaddr*)&servaddr, sizeof(servaddr))) != 0) 
 	{ 
         std::cout << "socket bind failed with " << errno << std::endl; 
         return -1;
@@ -150,40 +108,44 @@ int NetworkManagement::BindToSocket(int sockfd,int port)
 	return 0;
 }
 
-int NetworkManagement::ListenOnSocket(int sockfd)
+int NetworkManagement::ListenOnSocket()
 {
 	// Now server is ready to listen and verification
 	const int maxPendingConnection = 16;
-	if ((listen(sockfd, maxPendingConnection)) != 0) 
+	if ((listen(mServerSock, maxPendingConnection)) != 0) 
 	{ 
-		std::cout << "listen failed..." << std::endl; 
+		std::cout << "listen failed with:\n\t" << strerror(errno) << std::endl; 
 		return -1; 
 	} 
 	return 0;
 }
 
-int NetworkManagement::AcceptOnSocket(int sockfd,uint32_t &ip_address)
+int NetworkManagement::AcceptOnSocket(uint32_t &ip_address)
 {
 	struct sockaddr_in cli;
 	int len = sizeof(cli);
 
 	// Accept the data packet from client and verification
-	int connfd = accept(sockfd, (sockaddr*)(&cli),(socklen_t*) &len);
-	if (connfd < 0)
+	int clientSock = accept(mServerSock, (sockaddr*)(&cli),(socklen_t*) &len);
+	if (clientSock < 0)
 	{
+		if(errno == EAGAIN)
+			return -1;
+			
 		std::cout << "server acccept failed..." << std::endl;
+		std::cout << '\t' << strerror(errno) << std::endl;
 	}
 	else
-	{
+	{	
 		ip_address = cli.sin_addr.s_addr;
 		if(NetworkManagerBase::IsBlacklisted(ip_address)==true)
 		{
-			if(close(connfd)== -1)
+			if(close(clientSock)== -1)
 			{
 				std::cout << "error in client handler closing socket... " << std::endl;
 				std::cout << '\t' << strerror(errno) << std::endl;
 			}
-			connfd = -1;
+			clientSock = -1;
 		}
 		else
 		{
@@ -194,10 +156,10 @@ int NetworkManagement::AcceptOnSocket(int sockfd,uint32_t &ip_address)
 
 			char ipaddr[INET_ADDRSTRLEN];
 			inet_ntop( AF_INET, &cli.sin_addr, ipaddr, sizeof( ipaddr ));
-			std::cout << "server acccept the client " << ipaddr << " nr " << NetworkManagerBase::GetHandlerListSize() << " "  << buffer << std::endl;
+			std::cout << "\033[0;32m" << "server acccept the client " << ipaddr << " nr " << NetworkManagerBase::GetHandlerListSize() << " "  << buffer << "\033[0m" << std::endl;
 		}
 	}
-	return connfd;
+	return clientSock;
 }
 
 void NetworkManagement::StartThread(int socketToClient,uint32_t ip_address)
@@ -209,6 +171,7 @@ void NetworkManagement::StartThread(int socketToClient,uint32_t ip_address)
 	}
 	catch(...)
 	{
+		close(socketToClient);
 		std::cout << "StartThread memory allocation failed!!!" << std::endl;
 		return;
 	}

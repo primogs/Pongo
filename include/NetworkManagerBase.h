@@ -17,7 +17,10 @@ public:
 	NetworkManagerBase();
 	virtual ~NetworkManagerBase();
 	
-	static void Init();
+	static void ClearTimer(int arg);
+	
+	static void CloseAllClientSockets();
+	static void CloseSocket(int & sock,SSL **sslConnection);
 	
 	static void AddClientHandler(ClientHandler *pHandler);
 	static std::list<ClientHandler*>& GetHandlerList();
@@ -28,8 +31,6 @@ public:
 	static bool IsBlacklisted(uint32_t ip_addr); 
 	static void AddToBlacklist(uint32_t ip_addr);
 private:
-	static void ClearTimer(int arg); 
-	
 	static std::list<ClientHandler*> mHandler;
 	static std::mutex mHandlerMutex;
 	
@@ -39,6 +40,7 @@ private:
 	static const double mBlacklistResetTime;	// time in sceonds
 	static const unsigned int mResetDelay;
 	static const double mConnectionTimeout;
+	static bool mRunClearTimer;
 
 };
 

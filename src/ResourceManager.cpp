@@ -18,18 +18,14 @@
 //    Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 /////////////////////////////////////////////////////////////////////////////////////////
 #include "ResourceManager.h"
+#include <cstring>
 #include <fstream>
 #include <iostream>
 
 
 std::string ResourceManager::mBaseFolder = "resources";
-std::map<std::string, std::tuple<char*,int> > ResourceManager::mCache;
-std::map<std::string,resType > ResourceManager::mTypes;
+std::map<std::string, std::tuple<char*,size_t> > ResourceManager::mCache;
 std::mutex ResourceManager::mLoadMutex;
-	
-ResourceManager::ResourceManager()
-{
-}
 
 ResourceManager::~ResourceManager()
 {
@@ -44,7 +40,7 @@ void ResourceManager::SetBaseFolder(char* resFolder)
 
 void ResourceManager::Clear()
 {
-	for(std::map<std::string, std::tuple<char*,int> >::iterator it = mCache.begin();it != mCache.end();++it)
+	for(std::map<std::string, std::tuple<char*,size_t> >::iterator it = mCache.begin();it != mCache.end();++it)
 	{
 		std::tuple<char*,int> resource = it->second;
 		delete[] (std::get<0>(resource));
@@ -60,30 +56,37 @@ bool ResourceManager::isAvailable(const std::string &name)
 	if(InCache(name))
 		return true;
 		
+	return DoesFileExist(name);
+}
+
+bool ResourceManager::DoesFileExist(const std::string &name)
+{
 	std::ifstream file;
 	std::string path = mBaseFolder+name;
 	file.open(path);
-	return file.good();
+	bool fileExist = file.good();
+	file.close();
+	return fileExist;
 }
 
-char* ResourceManager::Get(const std::string &name, int &size)
+char* ResourceManager::Get(const std::string &name, size_t &size)
 {
 	size = 0;
 	if(!InCache(name))
 	{
 		bool result = false;
-		if (mLoadMutex.try_lock())	// load only one resource at time
+		if (mLoadMutex.try_lock())	// load only one file at time
 		{
 			result = LoadResource(name);
 			mLoadMutex.unlock();
 		}
 		if(result==false)
-			return NULL;
+			return nullptr;
 	}
 	return GetResourceFromCache(name,size);
 }
 
-char* ResourceManager::GetResourceFromCache(const std::string &name, int &size)
+char* ResourceManager::GetResourceFromCache(const std::string &name, size_t &size)
 {
 	std::tuple<char*,int> resource = mCache[name];
 	size = std::get<1>(resource);
@@ -92,46 +95,70 @@ char* ResourceManager::GetResourceFromCache(const std::string &name, int &size)
 
 bool ResourceManager::LoadResource(const std::string &name)
 {	
+	// valid file type ?
 	resType type = DetermineType(name);
 	if(type == NONE)
 		return false;
 	
-	mTypes[name] = type;
-	
+	// open file
 	std::string path = mBaseFolder+name;
 	std::ifstream file(path,std::ifstream::ate | std::ifstream::binary);
 	if(!file.good())
 		return false;
-		
+	
+	// get file size
 	std::ifstream::pos_type fileSize = file.tellg(); 
-	if(fileSize<=0)
-		return false;
+	if(fileSize>0)
+	{
+		// generate header
+		std::string header = GenerateHttpHeader(type,fileSize);
+		size_t memSize = header.length() + fileSize;
 		
-	file.seekg(0,file.beg);
-	char *fileData = nullptr;
-	try 
-	{
-		fileData = new char [fileSize];
+		file.seekg(0,file.beg);
+		char *data = nullptr;
+		try 
+		{
+			data = new char[memSize];
+		}
+		catch(...)
+		{
+			std::cout << "LoadResource memory allocation failed!!!" << std::endl;
+			file.close();
+			return false;
+		}
+		
+		// copy header to memory
+		memcpy(data,header.c_str(),header.length());
+		// copy file content to memory
+		file.read(data+header.length(),fileSize);
+		mCache[name]= std::make_tuple(data,memSize);
 	}
-	catch(...)
-	{
-		std::cout << "LoadResource memory allocation failed!!!" << std::endl;
-		return false;
-	}
-	file.read(fileData,fileSize);
-	mCache[name]= std::make_tuple(fileData,fileSize);
+	file.close();
 	return true;
+
+}
+
+std::string ResourceManager::GenerateHttpHeader(resType type,size_t size)
+{
+	std::stringstream sstr;
+	HttpHeaderResponse resHeader;
+	resHeader.addArgument("Server","Pongo");
+	resHeader.addArgument("Content-type",ContentTypeStr(type));
+	resHeader.addArgument("Connection","keep-alive");
+	resHeader.addArgument("Content-length",size);
+	resHeader.getHeader(sstr,OK);
+	return sstr.str();
 }
 
 bool ResourceManager::InCache(const std::string &name)
 {
-	return mCache.find(name) != mCache.end();
+	return (mCache.find(name) != mCache.end());
 }
 
-std::string ResourceManager::ContentType(const std::string &name)
+std::string ResourceManager::ContentTypeStr(const resType &type)
 {
 	std::string res;
-	switch(mTypes[name])
+	switch(type)
 	{
 		case JPEG:
 		{

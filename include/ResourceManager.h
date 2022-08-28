@@ -24,28 +24,33 @@
 #include <map>
 #include <string>
 #include <mutex>
+#include "HttpHeaderResponse.h"
 
 enum resType {NONE,JPEG,PNG,ICON,SVG,ZIP};
 class ResourceManager
 {
 public:
-	ResourceManager();
 	virtual ~ResourceManager();
 	
 	static void SetBaseFolder(char* resFolder);
 	static void Clear();
 	static bool isAvailable(const std::string &name);
-	static std::string ContentType(const std::string &name);
-	static char * Get(const std::string &name, int &size);
+	static char * Get(const std::string &name,size_t &size);
 private:
-	static char * GetResourceFromCache(const std::string &name, int &size);
+	ResourceManager() =default;
+	ResourceManager(const ResourceManager&) =delete;
+	ResourceManager& operator=(const ResourceManager&) =delete;
+  
+	static std::string ContentTypeStr(const resType &type);
+	static std::string GenerateHttpHeader(resType type,size_t fileSize);
+	static bool DoesFileExist(const std::string &name);
+	static char * GetResourceFromCache(const std::string &name, size_t &size);
 	static bool LoadResource(const std::string &name);
 	static bool InCache(const std::string &name);
 	static resType DetermineType(const std::string &name);
 
 	static std::string mBaseFolder;
-	static std::map<std::string, std::tuple<char*,int> > mCache;
-	static std::map<std::string,resType > mTypes;
+	static std::map<std::string, std::tuple<char*,size_t> > mCache;
 	static std::mutex mLoadMutex;
 };
 

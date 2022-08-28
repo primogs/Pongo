@@ -23,13 +23,11 @@
 
 #include <netinet/in.h> 
 #include <string.h> 
-#include <sys/socket.h> 
 #include <sys/types.h> 
 #include <unistd.h>
 #include <errno.h>
 #include <sstream>
 #include <iostream>
-#include <fstream>
 #include <ctime>
 #include <openssl/ssl.h>
 #include <openssl/err.h>
@@ -44,10 +42,11 @@ class ClientHandler
 {
 public:
 	ClientHandler(int socket,uint32_t ip_addr);
+	ClientHandler(SSL* connection,int socket,uint32_t ip_addr);
 	virtual ~ClientHandler();
 	
 	void CloseSocket();
-	void ShutdownSocket();
+	
 	time_t GetStartupTime();
 	
 	void SetSocketOfClient(SSL* connection);
@@ -59,27 +58,26 @@ private:
 
 	void Process(std::stringstream &sstr);
 	void ProcessHtmlRequest(std::string varStr);
+	void LogRequest(std::string req,bool vaild);
 	void SendNotFound();
 	void SendBadRequest();
 	void SendNotImplemented();
 	void SendTooManyRequests();
 	void SendHtmlPage(std::string htmlText);
-	void SendResource(std::string type,char * resData,int resSize);
 	std::string GenerateErrorPage(const std::string &errorMsg);
 	std::string BuildResponse(std::string &htmlText,httpStatus status=OK);
-	void CatchSslError(int res,std::string msg);
+	int CatchSslError(int res,std::string msg);
 	
 	bool CheckHttpArguments();
 
 	HtmlWebsite 		mWebsite;
 	HttpVariables 		mVariables;
 	HttpHeaderRequest 	mRequest;
-	int 				mSocket;
+	int 				mClientSock;
 	SSL* 		        mSslConnection;
 	uint32_t 			mIpAddr;
 	std::string			mIpStr;
 	time_t 				mStartupTime;
-
 };
 
 #endif // CLIENTHANDLER_H

@@ -21,10 +21,19 @@
 #include "ClientHandler.h"
 #include "NetworkManagerBase.h"
 
-extern volatile bool keepRunning;
+#define CLOSE_THREAD (-1)
+#define REPEAT_READ (0)
 
 ClientHandler::ClientHandler(int socket,uint32_t ip_addr):
-mSocket(socket), mSslConnection(nullptr),mIpAddr(ip_addr)
+mClientSock(socket), mSslConnection(nullptr),mIpAddr(ip_addr)
+{		
+	char ipaddr[INET_ADDRSTRLEN];
+	inet_ntop( AF_INET, &mIpAddr, ipaddr, sizeof( ipaddr ));
+	mIpStr = ipaddr;
+}
+
+ClientHandler::ClientHandler(SSL* connection,int socket,uint32_t ip_addr):
+mClientSock(socket), mSslConnection(connection),mIpAddr(ip_addr)
 {
 	char ipaddr[INET_ADDRSTRLEN];
 	inet_ntop( AF_INET, &mIpAddr, ipaddr, sizeof( ipaddr ));
@@ -33,60 +42,16 @@ mSocket(socket), mSslConnection(nullptr),mIpAddr(ip_addr)
 
 ClientHandler::~ClientHandler()
 {
-	ShutdownSocket();
 }
 
 void ClientHandler::CloseSocket()
 {
-	if(mSslConnection != nullptr)
-	{
-		SSL_shutdown(mSslConnection);
-        SSL_free(mSslConnection);
-		mSslConnection = nullptr;
-	}
-	if(mSocket != -1)
-	{
-		if(close(mSocket)== -1)
-		{
-			std::cout << "error in client handler closing socket... " << std::endl;
-			std::cout << '\t' << strerror(errno) << std::endl;
-		}
-		mSocket = -1;
-	}
-}
-
-void ClientHandler::ShutdownSocket()
-{
-	if(mSslConnection != nullptr)
-	{
-		int result = 0;
-		while(result==0)
-		{
-			result = SSL_shutdown(mSslConnection);
-			usleep(10);
-		}
-		
-		if(result<0)
-		{
-			long err = ERR_get_error();
-			char * err_msg = ERR_error_string(err,NULL);
-			std::cout << "error in client handler closing tls... " << err_msg << std::endl;
-		}
-	}
-	else
-	{
-		shutdown(mSocket, SHUT_RD);
-	}
+	NetworkManagerBase::CloseSocket(mClientSock,&mSslConnection);
 }
 
 time_t ClientHandler::GetStartupTime()
 {
 	return mStartupTime;
-}
-
-void ClientHandler::SetSocketOfClient(SSL* connection)
-{
-	mSslConnection = connection;
 }
 
 ssize_t ClientHandler::Write(const void *buffer, size_t n)
@@ -108,8 +73,8 @@ ssize_t ClientHandler::Write(const void *buffer, size_t n)
 			n -= ret;
 		}
 	}
-	else if(mSocket != -1)
-		return write(mSocket, buffer, n);
+	else if(mClientSock != -1)
+		return write(mClientSock, buffer, n);
 	return 0;
 }
 
@@ -120,35 +85,41 @@ ssize_t ClientHandler::Read(void *buffer, size_t n)
 	{
 		res = SSL_read(mSslConnection, buffer, n);
 		if(res <= 0)	 
-			CatchSslError(res,"recved failed with ");
+			res = CatchSslError(res,"recved failed with ");
 		else
 			res = n;
 	}
-	else if(mSocket != -1)
+	else if(mClientSock != -1)
 	{
-		res = read(mSocket, buffer, n);
-		if(res==-1 and errno != 0)
+		res = read(mClientSock, buffer, n);
+		if(res==CLOSE_THREAD and errno != 0)
 		{
 			std::cout << "recved failed with " << std::endl;
 			std::cout << '\t' << strerror(errno) << std::endl;
+		}
+		else if(res==0)
+		{
+			res = CLOSE_THREAD;
 		}
 	}
 	return res;
 }
 
-void ClientHandler::CatchSslError(int res,std::string msg)
+int ClientHandler::CatchSslError(int res,std::string msg)
 {
 	int err = SSL_get_error(mSslConnection,res);
+	res = CLOSE_THREAD;
 	switch (err) 
 	{
 		case SSL_ERROR_WANT_READ:
 		case SSL_ERROR_WANT_WRITE:
+			res = REPEAT_READ;	// don't close thread
 			break;
 
 		case SSL_ERROR_ZERO_RETURN:
 		case SSL_ERROR_SYSCALL:
-			mSslConnection = nullptr;	// SSL_shutdown() must not be called
-			ShutdownSocket();
+			SSL_free(mSslConnection);	// no further I/O operations should be performed on the connection
+			mSslConnection = nullptr;	
 			break;
 
 		default:
@@ -158,6 +129,7 @@ void ClientHandler::CatchSslError(int res,std::string msg)
 				std::cout << msg << err_msg << std::endl;
 			}
 	}
+	return res;
 }
 
 void ClientHandler::ServeClient()
@@ -168,17 +140,17 @@ void ClientHandler::ServeClient()
 	mStartupTime = time(nullptr);
 
     // infinite loop
-    while(keepRunning == true) 
+    while(true) 
 	{
         // read the message from client and copy it in buffer 
 		const ssize_t recved = Read(buff, bufferSize-1);
 		if(recved==-1)
 		{
+			std::cout << "recved connection closed" << std::endl; 
 			break;
 		}
 		else if(recved==0)
 		{
-			std::cout << "recved connection closed" << std::endl; 
 			break;
 		}
 		else if(recved<bufferSize)
@@ -206,16 +178,19 @@ void ClientHandler::Process(std::stringstream &sstr)
 			case GET:
 			{
 				const std::string path = mRequest.getPath();
-				std::cout << "GET(" << mIpStr << "): " << path << std::endl;
-				
 				if(ResourceManager::isAvailable(path))
 				{
-					int resSize=0;
+					LogRequest(path,true);
+					size_t resSize=0;
 					char* resData = ResourceManager::Get(path,resSize);
-					if(resData==NULL)
-						SendTooManyRequests();
+					if(resData != nullptr)
+					{
+						Write(resData, resSize);
+					}
 					else
-						SendResource(ResourceManager::ContentType(path),resData,resSize);
+					{
+						SendTooManyRequests();
+					}
 				}
 				else
 				{
@@ -225,7 +200,6 @@ void ClientHandler::Process(std::stringstream &sstr)
 			break;
 			case POST:
 			{
-				std::cout << "POST(" << mIpStr << "): " << sstr.str() << std::endl;
 				ProcessHtmlRequest(sstr.str());
 			}
 			break;
@@ -236,16 +210,29 @@ void ClientHandler::Process(std::stringstream &sstr)
 		}
 	}
 }
+
+void ClientHandler::LogRequest(std::string req,bool vaild)
+{
+	std::string::size_type pos = 0;
+	while ( ( pos = req.find ("\n",pos) ) != std::string::npos )
+	{
+		req.replace ( pos, 1,";");
+	}
+	std::cout << "request(" << mIpStr << ";" << vaild << "): " << req << std::endl;
+}
+
 void ClientHandler::ProcessHtmlRequest(std::string varStr)
 {
 	mVariables.Parse(varStr);
 	const std::string content = mWebsite.GenerateHtml(mRequest.getPath(),mVariables);
 	if(mWebsite.isAvailable())
 	{
+		LogRequest(mRequest.getPath(),true);
 		SendHtmlPage(content);
 	}
 	else
 	{
+		LogRequest(mRequest.getPath(),false);
 		SendNotFound();
 		NetworkManagerBase::AddToBlacklist(mIpAddr);
 	}
@@ -314,21 +301,4 @@ void ClientHandler::SendTooManyRequests()
 	std::string page = GenerateErrorPage("Too Many Requests 429");
 	std::string resp =  BuildResponse(page,TooManyRequests);
 	Write(resp.c_str(), resp.length());
-}
-
-
-
-void ClientHandler::SendResource(std::string type,char * resData,int resSize)
-{
-	std::stringstream sstr;
-	HttpHeaderResponse resHeader;
-	resHeader.addArgument("Server","Pongo");
-	resHeader.addArgument("Content-type",type);
-	resHeader.addArgument("Connection","keep-alive");
-	resHeader.addArgument("Content-length",resSize);
-	resHeader.getHeader(sstr,OK);
-	
-	sstr.write(resData,resSize);
-	const std::string res = sstr.str();
-	Write(res.c_str(), res.size());
 }

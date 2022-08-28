@@ -21,7 +21,6 @@
 #ifndef NetworkManagementSSL_H
 #define NetworkManagementSSL_H
 
-#include <sys/socket.h> 
 #include <errno.h>
 #include <iostream>
 #include <thread>
@@ -37,7 +36,7 @@ public:
 	NetworkManagementSsl();
 	virtual ~NetworkManagementSsl();
 	
-	static void CloseSocket();
+	static void CloseServerSocket();
 	
 	static void SetCertName(const char* cert);
 	static void SetBaseFolder(char* resFolder);
@@ -48,16 +47,15 @@ private:
 	static void RunServerLoop();
 	
 	static void ShutdownThreads();
-	static int BindToSocket(int sockfd,int port);
-	static int ListenOnSocket(int sockfd);
-	static int AcceptOnSocket(int sockfd,uint32_t &ip_address,SSL **sslConnection);
-	static void StartThread(SSL *sslToClient,int socketToClient,uint32_t ip_address);
+	static int BindToSocket(int port);
+	static int ListenOnSocket();
+	static int AcceptOnSocket(uint32_t &ip_address,SSL **sslConnection);
+	static void StartThread(SSL *sslToClient,int clientSock,uint32_t ip_address);
 	static void* ConnectionHandler(ClientHandler* pCHandler);
-	static void BlockUntilAllThreadsFinished(unsigned int timeout);
 	static void HandleErrorSSL(std::string msg,int connfd,SSL **sslConnection,int result);
 	static void HandleError(std::string msg,int connfd);
 
-	static int mSockfd;
+	static int mSslServerSock;
 	
 	static SSL_CTX * mSslContext;
 
